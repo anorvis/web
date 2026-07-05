@@ -1,0 +1,18 @@
+import { Workspace, WorkspaceHeader } from "@/components/layout/workspace";
+import { HealthSurface } from "@/features/life-intelligence/components/pages";
+import { formatPageDate } from "@/lib/workspace/view-utils";
+
+export default function Health() {
+  return (
+    <Workspace>
+      <WorkspaceHeader
+        header="health"
+        title="health"
+        subtitle={formatPageDate()}
+        description="body, sleep, food, training, medical records, and habit signals"
+      >
+        <HealthSurface />
+      </WorkspaceHeader>
+    </Workspace>
+  );
+}
