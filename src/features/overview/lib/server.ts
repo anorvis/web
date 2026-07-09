@@ -23,8 +23,7 @@ type GatewayAgent = {
 const localHealth: OverviewHealthSnapshot = {
   status: "disconnected",
   score: null,
-  nudge:
-    "local-only mode: ask an agent to connect health context through anorvis-os",
+  nudge: "Local-only mode: connect Health through Anorvis OS when ready.",
   confidence: "low",
   weekWorkoutCount: 0,
 };
@@ -32,8 +31,8 @@ const localHealth: OverviewHealthSnapshot = {
 const localLife: OverviewLifeSnapshot = {
   status: "disconnected",
   executionScore: null,
-  doNow: "open agent chat",
-  doNext: "wire local skills/memory through anorvis-os",
+  doNow: "Open the life workspace",
+  doNext: "Connect life records through the local backend.",
   currentEvent: null,
   nextEvent: null,
   todayEventCount: 0,

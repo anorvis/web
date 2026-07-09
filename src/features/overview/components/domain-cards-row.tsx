@@ -1,5 +1,6 @@
 "use client";
 
+import { Schema } from "effect";
 import { useState } from "react";
 import { formatAmount } from "@/features/finance/lib/currency";
 import { calculateStabilityScore } from "@/features/finance/lib/score";
@@ -12,6 +13,7 @@ import {
 } from "@/features/overview/components/overview-provider";
 import type { DomainStatus } from "@/features/overview/types/overview";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 function formatEquity(equity: number | null): string | null {
   if (equity === null) return null;
@@ -30,6 +32,13 @@ type CsvFinance = {
   nudge: string;
 };
 
+const CsvFinanceJsonSchema = Schema.parseJson(
+  Schema.Struct({
+    transactions: Schema.optional(Schema.Array(Schema.Unknown)),
+    liquidBalance: Schema.optional(Schema.Union(Schema.Number, Schema.Null)),
+  }),
+);
+
 export function useCsvFinance(): CsvFinance {
   const [state, setState] = useState<CsvFinance>({
     hasData: false,
@@ -41,14 +50,15 @@ export function useCsvFinance(): CsvFinance {
     try {
       const raw = sessionStorage.getItem("anorvis_finance_tx");
       if (!raw) return;
-      const data = JSON.parse(raw) as {
-        transactions?: Transaction[];
-        liquidBalance?: number | null;
-      };
-      const txs = data?.transactions;
+      const decoded = decodeUnknownResult(CsvFinanceJsonSchema, raw);
+      if (!decoded.ok) return;
+      const txs = decoded.value.transactions as Transaction[] | undefined;
       if (!Array.isArray(txs) || txs.length === 0) return;
 
-      const score = calculateStabilityScore(txs, data.liquidBalance ?? null);
+      const score = calculateStabilityScore(
+        txs,
+        decoded.value.liquidBalance ?? null,
+      );
       setState({
         hasData: true,
         stabilityScore: score.overall,

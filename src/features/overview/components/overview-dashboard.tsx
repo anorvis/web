@@ -2,12 +2,11 @@
 
 import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { fetchOverview } from "@/features/overview/api/overview";
 import { IntegrationsCatalog } from "@/features/overview/components/integrations-catalog";
 import { OverviewProvider } from "@/features/overview/components/overview-provider";
-import { useMountEffect } from "@/hooks/use-mount-effect";
+import { usePersistedQuery } from "@/hooks/use-persisted-query";
 import { queryKeys } from "@/lib/query/keys";
 
 type OverviewDashboardProps = {
@@ -17,19 +16,12 @@ type OverviewDashboardProps = {
 const INTEGRATION_SKELETONS = ["google", "obsidian", "next"];
 
 export function OverviewDashboard({ children }: OverviewDashboardProps) {
-  const [isMounted, setIsMounted] = useState(false);
-  const { data } = useQuery({
+  const { hydratedData: data } = usePersistedQuery({
     queryKey: queryKeys.overview(),
     queryFn: fetchOverview,
-    refetchOnMount: "always",
-    staleTime: 0,
   });
 
-  useMountEffect(() => {
-    setIsMounted(true);
-  });
-
-  return isMounted && data ? (
+  return data ? (
     <OverviewProvider data={data}>
       <IntegrationsCatalog />
       {children}
