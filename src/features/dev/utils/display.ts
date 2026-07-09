@@ -1,6 +1,12 @@
+import { Schema } from "effect";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 import { isRecord } from "@/lib/guards";
 
 import { getStatusTone } from "@/lib/workspace/view-utils";
+
+const JsonRecordSchema = Schema.parseJson(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
 
 export type JobRecord = {
   id: string;
@@ -98,12 +104,8 @@ export function formatPayload(payload: unknown): string {
 }
 
 function formatFieldString(value: string): string {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? formatFields(parsed) : value;
-  } catch {
-    return value;
-  }
+  const decoded = decodeUnknownResult(JsonRecordSchema, value);
+  return decoded.ok ? formatFields(decoded.value) : value;
 }
 
 export function formatFields(fields: Record<string, unknown>): string {
@@ -130,12 +132,8 @@ export function formatFields(fields: Record<string, unknown>): string {
 export function parseFields(value: unknown): Record<string, unknown> {
   if (isRecord(value)) return value;
   if (typeof value !== "string") return {};
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
+  const decoded = decodeUnknownResult(JsonRecordSchema, value);
+  return decoded.ok ? decoded.value : {};
 }
 
 export function streamEventDetails(event: OsEvent): {

@@ -1,23 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { fetchAgents } from "@/features/chat/api/client";
-import {
-  fetchDevJobs,
-  fetchDevOsEvents,
-  fetchDevRuns,
-} from "@/features/dev/api/dev";
+import { fetchFinancePortfolio } from "@/features/finance/api/finance";
 import { fetchHealthDashboard } from "@/features/health/api/health";
 import { fetchLifeSnapshot } from "@/features/life/api/life";
 import { fetchOverview } from "@/features/overview/api/overview";
 import { queryKeys } from "@/lib/query/keys";
 
-export const preloadRoutes = [
-  "/",
-  "/life",
-  "/health",
-  "/dev",
-  "/chat",
-  "/finance",
-] as const;
+export const preloadRoutes = ["/", "/life", "/health", "/finance"] as const;
 
 const routePreloads: Record<string, (queryClient: QueryClient) => void> = {
   "/": (queryClient) => {
@@ -38,24 +26,10 @@ const routePreloads: Record<string, (queryClient: QueryClient) => void> = {
       queryFn: fetchHealthDashboard,
     });
   },
-  "/dev": (queryClient) => {
+  "/finance": (queryClient) => {
     void queryClient.prefetchQuery({
-      queryKey: queryKeys.dev.jobs(),
-      queryFn: fetchDevJobs,
-    });
-    void queryClient.prefetchQuery({
-      queryKey: queryKeys.dev.runs(),
-      queryFn: fetchDevRuns,
-    });
-    void queryClient.prefetchQuery({
-      queryKey: queryKeys.dev.osEvents(),
-      queryFn: fetchDevOsEvents,
-    });
-  },
-  "/chat": (queryClient) => {
-    void queryClient.prefetchQuery({
-      queryKey: queryKeys.agents(),
-      queryFn: fetchAgents,
+      queryKey: queryKeys.finance.snapshot(),
+      queryFn: fetchFinancePortfolio,
     });
   },
 };

@@ -1,47 +1,46 @@
+import { Cause, Effect, Runtime, Schema } from "effect";
 import { NextResponse } from "next/server";
 import {
   resolveAnorvisGatewayBaseUrl,
   resolveAnorvisGatewayToken,
 } from "@/lib/anorvis-local-config";
+import {
+  ApiError,
+  DecodeError,
+  errorMessage,
+  isApiError,
+} from "@/lib/effect/errors";
+import { decodeUnknown } from "@/lib/effect/schema";
 
 export type GatewayAgent = {
   key: string;
   name: string;
 };
 
-export type GatewaySession = {
-  id: string;
-  surface?: string;
-  externalId?: string;
-  agent: string;
-  piSessionId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  title?: string;
-  messageCount?: number;
-  lastMessagePreview?: string | null;
-  lastMessageAt?: string | null;
-};
-
-export type GatewayMessage = {
-  id: string;
-  sender: string;
-  displayName: string;
-  content: string;
-  createdAt: string;
-};
-
+const JsonTextSchema = Schema.parseJson(Schema.Unknown);
 export async function gatewayFetch(pathname: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${resolveAnorvisGatewayToken()}`);
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
+  return Effect.runPromise(gatewayFetchEffect(pathname, init));
+}
 
-  return fetch(new URL(pathname, resolveAnorvisGatewayBaseUrl()), {
-    ...init,
-    headers,
-    cache: "no-store",
+export function gatewayFetchEffect(
+  pathname: string,
+  init: RequestInit = {},
+): Effect.Effect<Response, DecodeError, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${resolveAnorvisGatewayToken()}`);
+      if (init.body && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+
+      return fetch(new URL(pathname, resolveAnorvisGatewayBaseUrl()), {
+        ...init,
+        headers,
+        cache: "no-store",
+      });
+    },
+    catch: (error) => new DecodeError({ message: errorMessage(error) }),
   });
 }
 
@@ -49,59 +48,75 @@ export async function gatewayFetchJson<T>(
   pathname: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await gatewayFetch(pathname, init);
-  const text = await response.text();
-  let payload: unknown = null;
-  if (text) {
-    try {
-      payload = JSON.parse(text) as unknown;
-    } catch {
-      throw new Error(`anorvis-os returned invalid JSON for ${pathname}.`);
-    }
-  }
-
-  if (!response.ok) {
-    const error =
-      payload &&
-      typeof payload === "object" &&
-      "error" in payload &&
-      typeof payload.error === "string"
-        ? payload.error
-        : text || `Request failed with status ${response.status}`;
-    throw new Error(error);
-  }
-
-  return payload as T;
+  return Effect.runPromise(gatewayFetchJsonEffect<T>(pathname, init));
 }
 
-export function buildWebSdkSessionId(userId: string, threadId: string): string {
-  return `web:${userId}:${threadId}`;
-}
+export function gatewayFetchJsonEffect<T>(
+  pathname: string,
+  init: RequestInit = {},
+): Effect.Effect<T, ApiError | DecodeError, never> {
+  return Effect.flatMap(gatewayFetchEffect(pathname, init), (response) =>
+    Effect.tryPromise({
+      try: async () => {
+        const text = await response.text();
+        let payload: unknown = null;
+        if (text) {
+          try {
+            payload = decodeUnknown(JsonTextSchema, text);
+          } catch {
+            throw new DecodeError({
+              message: `anorvis-os returned invalid JSON for ${pathname}.`,
+            });
+          }
+        }
 
-export function buildWebExternalId(
-  userId: string,
-  threadId: string,
-  agent: string,
-): string {
-  return `${agent}:${buildWebSdkSessionId(userId, threadId)}`;
-}
+        if (!response.ok) {
+          throw new ApiError({
+            status: response.status,
+            path: pathname,
+            message: errorPayload(
+              payload,
+              text || `Request failed with status ${response.status}`,
+            ),
+          });
+        }
 
-export async function resolveWebGatewaySession(input: {
-  userId: string;
-  threadId: string;
-  agent: string;
-}) {
-  return gatewayFetchJson<{ record: GatewaySession }>("/v1/chat/sessions", {
-    method: "POST",
-    body: JSON.stringify({
-      surface: "web",
-      externalId: buildWebExternalId(input.userId, input.threadId, input.agent),
-      agent: input.agent,
+        return payload as T;
+      },
+      catch: (error) =>
+        isApiError(error) || error instanceof DecodeError
+          ? error
+          : new DecodeError({ message: errorMessage(error) }),
     }),
-  });
+  );
 }
 
 export function gatewayErrorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return NextResponse.json({ error: message }, { status: 502 });
+  const apiError = getApiError(error);
+  const message = apiError?.message ?? errorMessage(error);
+  return NextResponse.json(
+    { error: message },
+    { status: apiError?.status ?? 502 },
+  );
+}
+
+function getApiError(error: unknown): ApiError | undefined {
+  if (isApiError(error)) return error;
+  if (!Runtime.isFiberFailure(error)) return undefined;
+  const failure = Cause.failureOption(error[Runtime.FiberFailureCauseId]);
+  return failure._tag === "Some" && isApiError(failure.value)
+    ? failure.value
+    : undefined;
+}
+
+function errorPayload(value: unknown, fallback: string): string {
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "error" in value &&
+    typeof value.error === "string"
+  )
+    return value.error;
+  return fallback;
 }

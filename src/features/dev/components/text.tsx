@@ -1,13 +1,14 @@
 import { devStyles } from "@anorvis/ui/styles";
+import { Schema } from "effect";
 import type { ReactNode } from "react";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 import { isRecord } from "@/lib/guards";
 
+const UnknownJsonSchema = Schema.parseJson(Schema.Unknown);
+
 function tryParseJson(value: string): unknown | null {
-  try {
-    return JSON.parse(value) as unknown;
-  } catch {
-    return null;
-  }
+  const decoded = decodeUnknownResult(UnknownJsonSchema, value);
+  return decoded.ok ? decoded.value : null;
 }
 
 function renderInlineText(text: string): ReactNode[] {
@@ -335,12 +336,9 @@ export function parsePiSessionTranscript(content: string): PiTranscriptEntry[] {
     .split("\n")
     .filter(Boolean)
     .flatMap((line, index) => {
-      let value: unknown;
-      try {
-        value = JSON.parse(line) as unknown;
-      } catch {
-        return [];
-      }
+      const decoded = decodeUnknownResult(UnknownJsonSchema, line);
+      if (!decoded.ok) return [];
+      const value = decoded.value;
 
       if (!isRecord(value) || value.type !== "message") return [];
       const message = value.message;

@@ -1,5 +1,5 @@
 import { Workspace, WorkspaceHeader } from "@/components/layout/workspace";
-import { HomeDashboard } from "@/features/life-intelligence/components/pages";
+import { HomeDashboard } from "@/features/overview/components/home-dashboard";
 import { formatPageDate } from "@/lib/workspace/view-utils";
 
 export default function Home() {
@@ -9,7 +9,7 @@ export default function Home() {
         header="home"
         title="home"
         subtitle={formatPageDate()}
-        description="cross-pillar discoveries, signals, and recommended experiments"
+        description="cross-pillar discoveries, signals, and recommendations"
       >
         <HomeDashboard />
       </WorkspaceHeader>

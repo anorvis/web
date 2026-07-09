@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from "@anorvis/ui/card";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { cn } from "@anorvis/ui/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Schema } from "effect";
 import { useMemo, useRef, useState } from "react";
 import { MemoryPanel } from "@/features/dev/components/memory-panel";
 import {
@@ -23,10 +24,12 @@ import {
   type OsEvent,
   type RunRecord,
 } from "@/features/dev/utils/display";
+import { useHasMounted } from "@/hooks/use-has-mounted";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { isApiError } from "@/lib/effect/errors";
 import { requestJson } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 import { isRecord } from "@/lib/guards";
 import { queryKeys } from "@/lib/query/keys";
 
@@ -36,6 +39,10 @@ type RunLogEvent = {
   payload?: unknown;
   createdAt: string;
 };
+
+const OsEventMessageSchema = Schema.parseJson(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
 
 type DashboardState = {
   jobs: JobRecord[];
@@ -106,24 +113,21 @@ function extractArtifactRefs(output: string | null): string[] {
 }
 
 function parseOsEvent(event: MessageEvent<string>): OsEvent {
-  try {
-    const value = JSON.parse(event.data) as unknown;
-    if (isRecord(value)) {
-      return {
-        id:
-          typeof value.id === "number" || typeof value.id === "string"
-            ? `${event.type}-${value.id}`
-            : `${event.type}-${Date.now().toString()}`,
-        type: typeof value.type === "string" ? value.type : event.type,
-        payload: "payload" in value ? value.payload : value,
-        createdAt:
-          typeof value.createdAt === "string"
-            ? value.createdAt
-            : new Date().toISOString(),
-      };
-    }
-  } catch {
-    // Fall through to raw event rendering.
+  const decoded = decodeUnknownResult(OsEventMessageSchema, event.data);
+  if (decoded.ok) {
+    const value = decoded.value;
+    return {
+      id:
+        typeof value.id === "number" || typeof value.id === "string"
+          ? `${event.type}-${value.id}`
+          : `${event.type}-${Date.now().toString()}`,
+      type: typeof value.type === "string" ? value.type : event.type,
+      payload: "payload" in value ? value.payload : value,
+      createdAt:
+        typeof value.createdAt === "string"
+          ? value.createdAt
+          : new Date().toISOString(),
+    };
   }
 
   return {
@@ -174,7 +178,7 @@ function mergeOsEvents(liveEvents: OsEvent[], historyEvents: OsEvent[]) {
 
 export function DevPlatformDashboard() {
   const queryClient = useQueryClient();
-  const [isMounted, setIsMounted] = useState(false);
+  const isMounted = useHasMounted();
   const [error, setError] = useState<string | null>(null);
   const [selectedMemoryKey, setSelectedMemoryKey] = useState<string | null>(
     null,
@@ -206,9 +210,6 @@ export function DevPlatformDashboard() {
     queryKey: queryKeys.dev.runs(),
     queryFn: () => fetchJson<RunRecord[]>("/api/dev/runs"),
     refetchInterval: 30_000,
-  });
-  useMountEffect(() => {
-    setIsMounted(true);
   });
   const jobs = isMounted ? (jobsQuery.data ?? []) : [];
   const runs = isMounted ? (runsQuery.data ?? []) : [];

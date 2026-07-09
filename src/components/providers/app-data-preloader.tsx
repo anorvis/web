@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { prefetchCoreData, preloadRoutes } from "@/lib/query/preloads";
 
-const PRELOAD_PATHS = new Set(["/life", "/health", "/chat", "/dev"]);
+const PRELOAD_PATHS: Record<string, true> = {
+  "/": true,
+  "/finance": true,
+  "/health": true,
+  "/life": true,
+};
 
 function onIdle(callback: () => void, timeout = 1_500) {
   if ("requestIdleCallback" in window) {
@@ -25,7 +30,7 @@ export function AppDataPreloader() {
       for (const route of preloadRoutes) router.prefetch(route);
     };
 
-    const cancelDataWarm = PRELOAD_PATHS.has(window.location.pathname)
+    const cancelDataWarm = PRELOAD_PATHS[window.location.pathname]
       ? onIdle(() => prefetchCoreData(queryClient))
       : () => {};
     const cancelRouteWarm = onIdle(warmRoutes, 2_000);

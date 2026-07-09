@@ -5,9 +5,18 @@ import {
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
+import { Schema } from "effect";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 const STORAGE_KEY = "anorvis.query-cache.v1";
 const MAX_CACHE_AGE_MS = 24 * 60 * 60_000;
+
+const PersistedQueryCacheSchema = Schema.parseJson(
+  Schema.Struct({
+    savedAt: Schema.Number,
+    cache: Schema.Unknown,
+  }),
+);
 
 function isPersistableQueryKey(queryKey: QueryKey) {
   const [scope, entity] = queryKey;
@@ -24,12 +33,8 @@ function isPersistableQuery(query: Query) {
   );
 }
 
-function isFreshEnough(value: unknown) {
-  if (!value || typeof value !== "object" || !("savedAt" in value)) {
-    return false;
-  }
-  const savedAt = (value as { savedAt: unknown }).savedAt;
-  return typeof savedAt === "number" && Date.now() - savedAt < MAX_CACHE_AGE_MS;
+function isFreshEnough(savedAt: number) {
+  return Date.now() - savedAt < MAX_CACHE_AGE_MS;
 }
 
 export function restorePersistedQueryCache(queryClient: QueryClient) {
@@ -37,9 +42,9 @@ export function restorePersistedQueryCache(queryClient: QueryClient) {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isFreshEnough(parsed)) return;
-    hydrate(queryClient, (parsed as { cache: unknown }).cache);
+    const parsed = decodeUnknownResult(PersistedQueryCacheSchema, raw);
+    if (!parsed.ok || !isFreshEnough(parsed.value.savedAt)) return;
+    hydrate(queryClient, parsed.value.cache);
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
   }

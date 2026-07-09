@@ -9,8 +9,6 @@ import {
   restorePersistedQueryCache,
   subscribePersistedQueryCache,
 } from "@/lib/query/persistence";
-import { AppDataPreloader } from "./app-data-preloader";
-import { AppQueryEvents } from "./app-query-events";
 
 export function WebAppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
@@ -28,8 +26,6 @@ export function WebAppProviders({ children }: { children: ReactNode }) {
         enableSystem
         disableTransitionOnChange
       >
-        <AppQueryEvents />
-        <AppDataPreloader />
         {children}
       </ThemeProvider>
     </QueryClientProvider>

@@ -1,15 +1,15 @@
 # CLAUDE.md — Anorvis Web App
 
-> Inherits base behavior from root `../../CLAUDE.md`. Self-update rules apply here too.
+> Inherits durable repo conventions from `AGENTS.md`. Naming rules there are authoritative unless this file is stricter.
 
 ## Overview
-Next.js 15 web application with App Router. Provides dashboard, chat, goals, habits, memory, and planner interfaces.
+Next.js 15 web application with App Router. Provides local-first dashboards for overview, life, health, finance, integrations, memory, and planner interfaces.
 
 ## Tech Stack
 - **Framework**: Next.js 15 (App Router, React 19)
 - **Language**: TypeScript (strict)
-- **Styling**: Tailwind CSS 4
-- **UI Components**: shadcn/ui (in `src/components/ui/`)
+- **Styling**: Tailwind CSS 4 through `@anorvis/ui/styles.css` and exported style tokens
+- **UI Components**: `@anorvis/ui`; do not add local component-library primitives in this app
 - **Agent backend**: local anorvis-os gateway
 - **Auth/Database**: intentionally none; local-only app
 - **Linter/Formatter**: Biome (2-space indent)
@@ -29,21 +29,19 @@ npx tsc --noEmit  # Type check
 src/
 ├── app/              # Next.js App Router (pages + API routes)
 ├── components/
-│   ├── ui/           # Atomic shadcn components
-│   ├── utils/        # Theme toggle and utility components
-│   ├── layout/       # Shell, nav, styles
-│   ├── chat/         # Chat feature
-│   └── workspace/    # Domain workspace components
+│   ├── utils/              # App-specific wrappers around @anorvis/ui behavior
+│   └── layout/             # App shell composition and workspace re-exports
 ├── hooks/            # Custom React hooks
 └── lib/              # Local utilities and anorvis-os gateway helpers
 ```
 
 ## Conventions
 - `PascalCase` for components and classes
-- `camelCase` for hooks, utils, variables
-- Feature components get their own folder under `src/components/`
-- Shared atomic components live in `src/components/ui/`
-- Style objects in `layout/styles.ts`, not inline
+- `camelCase` for hooks, utilities, variables, and local functions
+- Naming follows `AGENTS.md`: short, direct, context-aware names; name length grows with scope; avoid type noise and ambiguous private abbreviations
+- Feature components stay under `src/features/<domain>/components/`
+- Reusable styling and component behavior belongs in `@anorvis/ui`, not this app
+- Small page-specific class overrides are allowed; general UI primitives, variants, and style tokens must be changed in the sibling UI repo first
 
 ## useEffect Ban
 **Direct `useEffect` is banned.** Enforced by Biome `noRestrictedImports` (error-level). Instead:
@@ -57,6 +55,7 @@ New custom hooks that genuinely need `useEffect` go in `src/hooks/` with a `biom
 
 ## Lessons Learned
 - Web app backend code should be local-only and route persistent/external capabilities through anorvis-os, not hosted auth/database providers.
+- `@anorvis/ui` is the component library. The committed lockfile makes `https://github.com/anorvis/ui/tarball/main` reproducible at the fetched revision; refresh the lockfile intentionally when the web app should pick up newer UI changes. Use local `file:../ui` only as a temporary development override, and do not commit it.
 
 ## Decisions Log
 - 2026-03-19: Banned direct `useEffect`. Enforced via Biome `noRestrictedImports`. Added `useMountEffect()` hook. Migrated 24 effects across 16 files. Ref: Factory's no-useEffect rule.
@@ -64,4 +63,4 @@ New custom hooks that genuinely need `useEffect` go in `src/hooks/` with a `biom
 - 2026-03-14: Decided to replace Matrix web integration with direct OpenClaw gateway API (OpenAI-compatible). Simpler, fewer deps.
 
 ## Known Gotchas
-*None currently.*
+*No durable gotchas recorded.*

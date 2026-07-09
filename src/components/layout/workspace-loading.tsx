@@ -12,7 +12,7 @@ export function WorkspaceLoading({
 }: {
   titleWidth?: string;
   subtitleWidth?: string;
-  rows?: "dashboard" | "chat" | "calendar" | "simple";
+  rows?: "dashboard" | "calendar" | "simple";
 }) {
   return (
     <Workspace>
@@ -22,12 +22,7 @@ export function WorkspaceLoading({
           <Skeleton className={cn("h-6", titleWidth)} />
           <Skeleton className={cn("h-3", subtitleWidth)} />
         </div>
-        {rows === "chat" ? (
-          <div className="grid min-h-[calc(100vh-14rem)] gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
-            <Skeleton className="h-full min-h-96" />
-            <Skeleton className="h-full min-h-96" />
-          </div>
-        ) : rows === "calendar" ? (
+        {rows === "calendar" ? (
           <>
             <div className="grid gap-4 lg:grid-cols-2">
               <Skeleton className="h-40" />

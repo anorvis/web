@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Instrument_Serif } from "next/font/google";
 import Script from "next/script";
+import { LocalBackendGate } from "@/components/landing/local-backend-gate";
 import { WebAppProviders } from "@/components/providers/web-app-providers";
+import { isAnorvisProdRuntime } from "@/lib/anorvis-runtime";
 import "@fontsource/cossette-titre";
 import "./globals.css";
 import { Toaster } from "@anorvis/ui/sonner";
@@ -12,6 +14,10 @@ const instrumentSerif = Instrument_Serif({
   style: ["normal", "italic"],
   variable: "--font-instrument-serif",
 });
+
+const enableReactScan =
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_REACT_SCAN === "1";
 
 export const metadata: Metadata = {
   title: "anorvis",
@@ -29,20 +35,22 @@ export default function RootLayout({
       className={instrumentSerif.variable}
       suppressHydrationWarning
     >
-      {process.env.NODE_ENV === "development" && (
-        <>
-          <Script
-            src="//unpkg.com/react-scan/dist/auto.global.js"
-            crossOrigin="anonymous"
-            strategy="beforeInteractive"
-          />
-          <Script
-            src="//unpkg.com/react-grab/dist/index.global.js"
-            crossOrigin="anonymous"
-            strategy="beforeInteractive"
-          />
-        </>
-      )}
+      <head>
+        {enableReactScan && (
+          <>
+            <Script
+              src="//unpkg.com/react-scan/dist/auto.global.js"
+              crossOrigin="anonymous"
+              strategy="beforeInteractive"
+            />
+            <Script
+              src="//unpkg.com/react-grab/dist/index.global.js"
+              crossOrigin="anonymous"
+              strategy="beforeInteractive"
+            />
+          </>
+        )}
+      </head>
       <body>
         <WebAppProviders>
           <a
@@ -51,7 +59,9 @@ export default function RootLayout({
           >
             Skip to main content
           </a>
-          {children}
+          <LocalBackendGate isProd={isAnorvisProdRuntime()}>
+            {children}
+          </LocalBackendGate>
           <Toaster />
         </WebAppProviders>
       </body>

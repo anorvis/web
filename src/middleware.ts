@@ -1,9 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { isAnorvisOsUp } from "@/lib/anorvis-os-status";
+import { isAnorvisProdRuntime } from "@/lib/anorvis-runtime";
 import { hostnameFromHeader } from "@/lib/request-host";
 
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
-const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+const localHosts: Record<string, true> = {
+  "::1": true,
+  "127.0.0.1": true,
+  localhost: true,
+};
 
 function lockedResponse(status = 403) {
   return NextResponse.json(
@@ -19,21 +23,17 @@ export async function middleware(request: NextRequest) {
   const hostHeader = request.headers.get("host");
   const pathname = request.nextUrl.pathname;
   const host = hostnameFromHeader(hostHeader);
-  const isLocalHost = !!host && localHosts.has(host);
+  const isLocalHost = !!host && localHosts[host];
+  const isProdRuntime = isAnorvisProdRuntime();
 
-  if (isLocalHost && safeMethods.has(request.method)) {
-    return NextResponse.next();
+  if (isProdRuntime) {
+    return pathname === "/"
+      ? NextResponse.next()
+      : new Response("Not found", { status: 404 });
   }
 
-  if (!isLocalHost && !(await isAnorvisOsUp())) {
-    if (pathname.startsWith("/api/")) return lockedResponse();
-    if (!safeMethods.has(request.method)) return lockedResponse();
-    if (pathname === "/") return NextResponse.next();
-
-    return new NextResponse("Not found", {
-      status: 404,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+  if (!isProdRuntime && isLocalHost && safeMethods.has(request.method)) {
+    return NextResponse.next();
   }
 
   if (safeMethods.has(request.method)) return NextResponse.next();

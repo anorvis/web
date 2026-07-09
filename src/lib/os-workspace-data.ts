@@ -1,6 +1,8 @@
 import "server-only";
+import { Schema } from "effect";
 
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export type MemoryDocument = {
   id: string;
@@ -20,16 +22,15 @@ type WorkspaceMemoryKind =
   | "decision"
   | "preference";
 
+const JsonBodySchema = Schema.parseJson(Schema.Unknown);
+
 function encodeSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
 function parseJsonBody(body: string): unknown | null {
-  try {
-    return JSON.parse(body) as unknown;
-  } catch {
-    return null;
-  }
+  const decoded = decodeUnknownResult(JsonBodySchema, body);
+  return decoded.ok ? decoded.value : null;
 }
 
 export async function readWorkspaceDocument<T>(input: {
