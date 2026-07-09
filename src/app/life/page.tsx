@@ -9,7 +9,7 @@ export default function Life() {
         header="life"
         title="life"
         subtitle={formatPageDate()}
-        description={`"memento mori."`}
+        description="time, attention, commitments, routines, and reviewable agent changes"
       >
         <LifeDashboard />
       </WorkspaceHeader>
