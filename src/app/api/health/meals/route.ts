@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
+import { HealthRequestBodySchema } from "@/features/health/api/schemas";
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as Record<string, unknown>;
+  const decoded = decodeUnknownResult(
+    HealthRequestBodySchema,
+    await request.json().catch(() => null),
+  );
+  const body = decoded.ok ? decoded.value : {};
   const id = typeof body.id === "string" ? body.id.trim() : "";
   const meal = await gatewayFetchJson(
     id ? `/v1/health/meals/${id}` : "/v1/health/meals",
@@ -27,7 +33,11 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const body = (await request.json()) as Record<string, unknown>;
+  const decoded = decodeUnknownResult(
+    HealthRequestBodySchema,
+    await request.json().catch(() => null),
+  );
+  const body = decoded.ok ? decoded.value : {};
   const id = typeof body.id === "string" ? body.id.trim() : "";
   if (!id) {
     return NextResponse.json(

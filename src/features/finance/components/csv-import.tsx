@@ -19,12 +19,17 @@ type CsvImportProps = {
   onImport: (transactions: Transaction[], balance: number | null) => void;
 };
 
+function fileLabelFromSource(sourceLabel: string) {
+  return sourceLabel.split(":")[0]?.replace(/\.csv$/i, "") || "manual import";
+}
+
 export function CsvImport({ onImport }: CsvImportProps) {
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [manualState, setManualState] = useState<{
     csvText: string;
     headers: string[];
+    sourceLabel: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +50,11 @@ export function CsvImport({ onImport }: CsvImportProps) {
           onImport(transactions, balance);
         } else {
           const headers = getCSVHeaders(csvText);
-          setManualState({ csvText, headers });
+          setManualState({
+            csvText,
+            headers,
+            sourceLabel: `${file.name}:${file.size}:${file.lastModified}`,
+          });
           setStatus("format not recognized — map columns manually");
         }
       };
@@ -88,11 +97,11 @@ export function CsvImport({ onImport }: CsvImportProps) {
             : "border-border hover:border-foreground/50"
         }`}
       >
-        <p className="text-[0.6rem] uppercase tracking-[0.3em] text-muted-foreground">
-          drop csv or click to upload
+        <p className="text-sm font-medium text-foreground">
+          Drop CSV or click to upload
         </p>
-        <p className="text-[0.5rem] text-muted-foreground/50 mt-1">
-          chase cc · chase checking · td canada trust · wealthsimple
+        <p className="mt-1 text-xs text-muted-foreground">
+          Chase credit, Chase checking, TD Canada Trust, Wealthsimple
         </p>
         <input
           ref={fileInputRef}
@@ -111,7 +120,7 @@ export function CsvImport({ onImport }: CsvImportProps) {
         <ManualMapping
           headers={manualState.headers}
           onMap={(mapping) => {
-            const accountName = "manual import";
+            const accountName = fileLabelFromSource(manualState.sourceLabel);
             const transactions = parseCSVManual(
               manualState.csvText,
               mapping,

@@ -1,13 +1,17 @@
 import { Button } from "@anorvis/ui/button";
 import {
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@anorvis/ui/dialog";
 import { Label } from "@anorvis/ui/label";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import type { ReactNode } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 
 type QuizState = {
   birthdate: string;
@@ -273,7 +277,7 @@ export function MacroQuiz(props: {
             </div>
           </div>
         )}
-        <div className={workspacePageStyles.formActions}>
+        <DialogFooter className={workspaceModalFooterClass}>
           <Button
             type="button"
             disabled={props.step === 0}
@@ -300,7 +304,7 @@ export function MacroQuiz(props: {
               calculate
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </div>
     </WorkspaceDialog>
   );

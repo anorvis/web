@@ -1,5 +1,7 @@
+import { Schema } from "effect";
 import type { NativeHealthDashboard } from "@/features/health/types/native-health";
 import { getWeekStart, toDateString } from "@/features/life/lib/calendar-utils";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export type FoodSearchResult = {
   id: string;
@@ -27,6 +29,8 @@ export type WorkoutTemplate = {
 
 export const recipeStorageKey = "anorvis.health.recipes";
 export const workoutTemplateStorageKey = "anorvis.health.workoutTemplates";
+
+const UnknownArrayJsonSchema = Schema.parseJson(Schema.Array(Schema.Unknown));
 
 export const initialMeal = {
   id: "",
@@ -73,10 +77,11 @@ export function createWorkoutSet() {
 export function readSavedRecipes(): FoodSearchResult[] {
   if (typeof window === "undefined") return [];
   try {
-    const value = JSON.parse(
+    const value = decodeUnknownResult(
+      UnknownArrayJsonSchema,
       localStorage.getItem(recipeStorageKey) ?? "[]",
-    ) as unknown;
-    return Array.isArray(value) ? (value as FoodSearchResult[]) : [];
+    );
+    return value.ok ? (value.value as FoodSearchResult[]) : [];
   } catch {
     return [];
   }
@@ -85,10 +90,11 @@ export function readSavedRecipes(): FoodSearchResult[] {
 export function readWorkoutTemplates(): WorkoutTemplate[] {
   if (typeof window === "undefined") return [];
   try {
-    const value = JSON.parse(
+    const value = decodeUnknownResult(
+      UnknownArrayJsonSchema,
       localStorage.getItem(workoutTemplateStorageKey) ?? "[]",
-    ) as unknown;
-    return Array.isArray(value) ? (value as WorkoutTemplate[]) : [];
+    );
+    return value.ok ? (value.value as WorkoutTemplate[]) : [];
   } catch {
     return [];
   }

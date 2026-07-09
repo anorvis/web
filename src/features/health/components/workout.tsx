@@ -1,11 +1,15 @@
 import {
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@anorvis/ui/dialog";
 import { Label } from "@anorvis/ui/label";
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 import { useHealthActions } from "@/features/health/components/actions";
 import { useHealthStore } from "@/features/health/stores/health-store";
 import type {
@@ -320,7 +324,7 @@ export function WorkoutDialog() {
             </span>
           </label>
         </div>
-        <div className={workspacePageStyles.formActions}>
+        <DialogFooter className={workspaceModalFooterClass}>
           <button
             type="button"
             onClick={() => setWorkoutOpen(false)}
@@ -335,7 +339,7 @@ export function WorkoutDialog() {
           >
             save workout
           </button>
-        </div>
+        </DialogFooter>
       </form>
     </WorkspaceDialog>
   );

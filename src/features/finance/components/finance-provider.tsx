@@ -1,5 +1,6 @@
 "use client";
 
+import { Schema } from "effect";
 import {
   createContext,
   type ReactNode,
@@ -10,6 +11,7 @@ import {
 import { categorizeAll } from "@/features/finance/lib/categorize";
 import type { Transaction } from "@/features/finance/types/finance";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 const SESSION_KEY = "anorvis_finance_tx";
 
@@ -18,11 +20,24 @@ type SessionCache = {
   liquidBalance: number | null;
 };
 
+const SessionCacheSchema = Schema.parseJson(
+  Schema.Struct({
+    transactions: Schema.Array(Schema.Unknown),
+    liquidBalance: Schema.Union(Schema.Number, Schema.Null),
+  }),
+);
+
 function loadSessionCache(): SessionCache | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as SessionCache;
+    const decoded = decodeUnknownResult(SessionCacheSchema, raw);
+    return decoded.ok
+      ? {
+          transactions: decoded.value.transactions as Transaction[],
+          liquidBalance: decoded.value.liquidBalance,
+        }
+      : null;
   } catch {
     return null;
   }
@@ -37,7 +52,9 @@ function saveSessionCache(cache: SessionCache) {
 }
 
 function txFingerprint(t: Transaction): string {
-  return `${t.date}|${t.description}|${t.amount}|${t.account}`;
+  return (
+    t.importFingerprint ?? `${t.date}|${t.description}|${t.amount}|${t.account}`
+  );
 }
 
 type FinanceContextValue = {

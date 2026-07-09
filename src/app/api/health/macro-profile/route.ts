@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { HealthRequestBodySchema } from "@/features/health/api/schemas";
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export const runtime = "nodejs";
 
@@ -49,7 +51,11 @@ function positiveNumber(value: unknown): number | null {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as Record<string, unknown>;
+  const decoded = decodeUnknownResult(
+    HealthRequestBodySchema,
+    await request.json().catch(() => null),
+  );
+  const body = decoded.ok ? decoded.value : {};
   const calculated = calculateTargets(body);
   const targets = {
     targetCalories:

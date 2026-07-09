@@ -1,5 +1,5 @@
 import { Workspace, WorkspaceHeader } from "@/components/layout/workspace";
-import { FinanceSurface } from "@/features/life-intelligence/components/pages";
+import { FinanceDashboard } from "@/features/finance/components/finance-dashboard";
 import { formatPageDate } from "@/lib/workspace/view-utils";
 
 export default function Finance() {
@@ -9,9 +9,9 @@ export default function Finance() {
         header="finance"
         title="finance"
         subtitle={formatPageDate()}
-        description="cashflow, allocation planning, money movement, and future scenarios"
+        description="accounts, transactions, positions, categories, planning, and simulation boundaries"
       >
-        <FinanceSurface />
+        <FinanceDashboard />
       </WorkspaceHeader>
     </Workspace>
   );

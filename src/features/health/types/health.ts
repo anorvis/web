@@ -1,3 +1,63 @@
+export type ExerciseSet = {
+  reps?: number;
+  weightKg?: number;
+  durationSeconds?: number;
+  distanceMeters?: number;
+};
+
+export type Exercise = {
+  title: string;
+  muscleGroups: string[];
+  sets: ExerciseSet[];
+};
+
+export type Workout = {
+  id: string;
+  title: string;
+  startAt: string;
+  endAt?: string;
+  exercises: Exercise[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Macro = {
+  calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+};
+
+export type Meal = {
+  id: string;
+  title: string;
+  time: string;
+  photoId?: string;
+  notes?: string;
+  macro?: Macro;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DailySentiment = {
+  id: string;
+  date: string;
+  moodScore?: number;
+  stressScore?: number;
+  energyScore?: number;
+  confidenceScore?: number;
+  topics: string[];
+  summary: string;
+  evidenceSessionIds: string[];
+  createdAt: string;
+};
+
+export type HealthData = {
+  workouts: Workout[];
+  meals: Meal[];
+  dailySentiment?: DailySentiment;
+};
+
 export type WorkoutSummary = {
   id: string;
   title: string;

@@ -39,6 +39,38 @@ function parseDate(raw: string): string {
   return raw;
 }
 
+function stableHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function stableTransactionId(
+  source: BankFormat | "manual",
+  accountName: string,
+  fingerprint: string,
+  occurrence: number,
+): string {
+  return `csv-${source}-${stableHash(accountName)}-${stableHash(fingerprint)}-${occurrence}`;
+}
+
+function transactionDedupeKey(
+  source: BankFormat | "manual",
+  accountName: string,
+  fingerprint: string,
+  occurrence: number,
+): string {
+  return `csv-${source}-${stableHash(accountName)}-${stableHash(fingerprint)}-${occurrence}`;
+}
+
+function nextOccurrence(counts: Map<string, number>, fingerprint: string) {
+  const next = (counts.get(fingerprint) ?? 0) + 1;
+  counts.set(fingerprint, next);
+  return next;
+}
+
 const BANK_PROFILES: BankProfile[] = [
   {
     key: "chase_cc",
@@ -184,12 +216,31 @@ export function parseCSV(
 
   const rows = skipHeader ? parsed.data.slice(1) : parsed.data;
   const transactions: Transaction[] = [];
+  const occurrenceCounts = new Map<string, number>();
 
   for (const row of rows) {
     const mapped = profile.map(row);
     if (!mapped) continue;
+    const currency = mapped.currency ?? profile.defaultCurrency;
+    const fingerprint = [
+      mapped.date,
+      mapped.description,
+      mapped.amount,
+      currency,
+    ].join("|");
     transactions.push({
-      id: crypto.randomUUID(),
+      id: stableTransactionId(
+        format,
+        accountName,
+        fingerprint,
+        nextOccurrence(occurrenceCounts, fingerprint),
+      ),
+      importFingerprint: transactionDedupeKey(
+        format,
+        accountName,
+        fingerprint,
+        occurrenceCounts.get(fingerprint) ?? 1,
+      ),
       date: mapped.date,
       description: mapped.description,
       amount: mapped.amount,
@@ -219,18 +270,35 @@ export function parseCSVManual(
   const rows = parsed.data.slice(1);
   const transactions: Transaction[] = [];
 
+  const occurrenceCounts = new Map<string, number>();
+
   for (const row of rows) {
     const amount = Number.parseFloat(row[mapping.amount]);
     if (Number.isNaN(amount)) continue;
+    const description = row[mapping.description]?.trim() ?? "";
+    const category =
+      mapping.category != null
+        ? (row[mapping.category]?.trim() ?? "uncategorized")
+        : "uncategorized";
+    const date = parseDate(row[mapping.date]);
+    const fingerprint = [date, description, amount, category, "USD"].join("|");
     transactions.push({
-      id: crypto.randomUUID(),
-      date: parseDate(row[mapping.date]),
-      description: row[mapping.description]?.trim() ?? "",
+      id: stableTransactionId(
+        "manual",
+        accountName,
+        fingerprint,
+        nextOccurrence(occurrenceCounts, fingerprint),
+      ),
+      importFingerprint: transactionDedupeKey(
+        "manual",
+        accountName,
+        fingerprint,
+        occurrenceCounts.get(fingerprint) ?? 1,
+      ),
+      date,
+      description,
       amount,
-      category:
-        mapping.category != null
-          ? (row[mapping.category]?.trim() ?? "uncategorized")
-          : "uncategorized",
+      category,
       account: accountName,
       source: "manual",
       originalCurrency: "USD",

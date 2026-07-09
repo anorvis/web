@@ -1,52 +1,65 @@
 import { NextResponse } from "next/server";
+import {
+  ExerciseBodySchema,
+  ExerciseSetBodySchema,
+  ExercisesJsonSchema,
+  HealthRequestBodySchema,
+} from "@/features/health/api/schemas";
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export const runtime = "nodejs";
 
 function parseExercises(value: unknown) {
   if (typeof value !== "string") return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) => {
-      if (typeof item !== "object" || item === null) return [];
-      const record = item as Record<string, unknown>;
-      const title = String(record.title || "").trim();
-      if (!title) return [];
-      const parsedSets = Array.isArray(record.sets) ? record.sets : [];
-      const sets = parsedSets.flatMap((set) => {
-        if (typeof set !== "object" || set === null) return [];
-        const setRecord = set as Record<string, unknown>;
-        return [
-          {
-            setType: "normal",
-            weightKg: setRecord.weightKg ? Number(setRecord.weightKg) : null,
-            reps: setRecord.reps ? Number(setRecord.reps) : null,
-          },
-        ];
-      });
+  const decoded = decodeUnknownResult(ExercisesJsonSchema, value);
+  if (!decoded.ok) return [];
+  return decoded.value.flatMap((item) => {
+    const record = decodeUnknownResult(ExerciseBodySchema, item);
+    if (!record.ok) return [];
+    const title = String(record.value.title || "").trim();
+    if (!title) return [];
+    const parsedSets = Array.isArray(record.value.sets)
+      ? record.value.sets
+      : [];
+    const sets = parsedSets.flatMap((set) => {
+      const setRecord = decodeUnknownResult(ExerciseSetBodySchema, set);
+      if (!setRecord.ok) return [];
       return [
         {
-          title,
-          sets: sets.length
-            ? sets
-            : [
-                {
-                  setType: "normal",
-                  weightKg: record.weightKg ? Number(record.weightKg) : null,
-                  reps: record.reps ? Number(record.reps) : null,
-                },
-              ],
+          setType: "normal",
+          weightKg: setRecord.value.weightKg
+            ? Number(setRecord.value.weightKg)
+            : null,
+          reps: setRecord.value.reps ? Number(setRecord.value.reps) : null,
         },
       ];
     });
-  } catch {
-    return [];
-  }
+    return [
+      {
+        title,
+        sets: sets.length
+          ? sets
+          : [
+              {
+                setType: "normal",
+                weightKg: record.value.weightKg
+                  ? Number(record.value.weightKg)
+                  : null,
+                reps: record.value.reps ? Number(record.value.reps) : null,
+              },
+            ],
+      },
+    ];
+  });
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as Record<string, unknown>;
+  const decoded = decodeUnknownResult(
+    HealthRequestBodySchema,
+    await request.json().catch(() => null),
+  );
+  const body = decoded.ok ? decoded.value : {};
   const id = typeof body.id === "string" ? body.id.trim() : "";
   const workout = await gatewayFetchJson(
     id ? `/v1/health/workouts/${id}` : "/v1/health/workouts",

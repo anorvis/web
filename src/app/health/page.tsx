@@ -1,5 +1,5 @@
 import { Workspace, WorkspaceHeader } from "@/components/layout/workspace";
-import { HealthSurface } from "@/features/life-intelligence/components/pages";
+import { HealthDashboard } from "@/features/health/components/health-dashboard";
 import { formatPageDate } from "@/lib/workspace/view-utils";
 
 export default function Health() {
@@ -11,7 +11,7 @@ export default function Health() {
         subtitle={formatPageDate()}
         description="body, sleep, food, training, medical records, and habit signals"
       >
-        <HealthSurface />
+        <HealthDashboard />
       </WorkspaceHeader>
     </Workspace>
   );
