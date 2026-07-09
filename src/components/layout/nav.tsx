@@ -46,7 +46,7 @@ export function WorkspaceNav() {
   return (
     <header className={workspaceStyles.nav}>
       <div className="space-y-2">
-        <p className={workspaceStyles.navTitle}>{"// life console"}</p>
+        <p className={workspaceStyles.navTitle}>{"// console"}</p>
         <nav className={workspaceStyles.navLinks}>
           {workspaceNavItems.map((item) => (
             <Link
@@ -108,18 +108,6 @@ export function WorkspaceNav() {
             <Globe2 className="ml-2 inline h-3 w-3" aria-label="Metric units" />
           </button>
         )}
-        <Link
-          href="/chat"
-          prefetch
-          onPointerEnter={() => prefetch("/chat")}
-          onFocus={() => prefetch("/chat")}
-          className={cn(
-            workspaceStyles.navLink,
-            isActiveLink(pathname, "/chat") && workspaceStyles.navLinkActive,
-          )}
-        >
-          chat
-        </Link>
         <ModeToggle className={workspaceStyles.iconButton} />
       </div>
     </header>
