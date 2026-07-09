@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const projectRoot = path.resolve(__dirname, "..", "src");
-const uiRoot = path.join(projectRoot, "components", "ui");
 const validExtensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
 
 const ignoredDirs = new Set([
@@ -33,11 +32,13 @@ function walk(dir, results) {
       continue;
     }
 
-    if (!validExtensions.has(path.extname(entry.name))) {
+    const relativePath = path.relative(projectRoot, fullPath);
+    if (relativePath.startsWith(`components${path.sep}ui${path.sep}`)) {
+      results.push(fullPath);
       continue;
     }
 
-    if (fullPath.startsWith(uiRoot)) {
+    if (!validExtensions.has(path.extname(entry.name))) {
       continue;
     }
 
@@ -52,7 +53,9 @@ const invalidFiles = [];
 walk(projectRoot, invalidFiles);
 
 if (invalidFiles.length > 0) {
-  console.error("Radix imports must live in src/components/ui only.");
+  console.error(
+    "Reusable UI primitives must come from @anorvis/ui; do not add local src/components/ui files or direct Radix imports.",
+  );
   invalidFiles.forEach((file) => {
     const relativePath = path.relative(process.cwd(), file);
     console.error(`- ${relativePath}`);

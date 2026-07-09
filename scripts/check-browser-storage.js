@@ -6,8 +6,6 @@ const validExtensions = new Set([".ts", ".tsx"]);
 const storagePattern = /\b(?:window\.)?(?:localStorage|sessionStorage)\./;
 
 const allowedFiles = new Set([
-  "features/chat/components/chat.tsx",
-  "features/chat/api/client.ts",
   "features/finance/components/finance-provider.tsx",
   "features/health/components/command-center.tsx",
   "features/health/utils/forms.ts",
@@ -15,6 +13,7 @@ const allowedFiles = new Set([
   "features/life/stores/inspiration-store.ts",
   "features/overview/components/domain-cards-row.tsx",
   "lib/query/persistence.ts",
+  "lib/local-backend-client.ts",
 ]);
 
 function walk(dir, results = []) {

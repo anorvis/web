@@ -64,8 +64,8 @@ const allowedImports = new Map([
   [
     "lib/query/preloads.ts",
     new Set([
-      "@/features/chat/api/client",
       "@/features/dev/api/dev",
+      "@/features/finance/api/finance",
       "@/features/health/api/health",
       "@/features/life/api/life",
       "@/features/overview/api/overview",

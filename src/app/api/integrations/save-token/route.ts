@@ -1,38 +1,33 @@
 import { NextResponse } from "next/server";
-import { writeWorkspaceDocument } from "@/lib/os-workspace-data";
+import { SaveTokenInputSchema } from "@/features/integrations/api/provider-schemas";
+import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
-  if (
-    !body ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    !("provider" in body) ||
-    typeof body.provider !== "string" ||
-    !("token" in body) ||
-    typeof body.token !== "string"
-  ) {
+  const input = decodeUnknownResult(SaveTokenInputSchema, body);
+  if (!input.ok) {
     return NextResponse.json(
       { error: "provider and token are required" },
       { status: 400 },
     );
   }
 
-  await writeWorkspaceDocument({
-    kind: "decision",
-    id: `web-integration-token-request-${crypto.randomUUID()}`,
-    title: `Integration token provided for ${body.provider}`,
-    value: {
-      provider: body.provider,
-      tokenPresent: body.token.trim().length > 0,
-      requestedAt: new Date().toISOString(),
-    },
-  });
-
-  return NextResponse.json({
-    ok: true,
-    note: "Stored a token-registration request in anorvis-os memory. Secret persistence belongs in anorvis-os auth providers.",
-  });
+  try {
+    await gatewayFetchJson(
+      `/v1/providers/${encodeURIComponent(input.value.provider)}/connection`,
+      {
+        method: "POST",
+        body: JSON.stringify({ secrets: { token: input.value.token } }),
+      },
+    );
+    return NextResponse.json({
+      ok: true,
+      note: "Stored token through anorvis-os provider secrets.",
+    });
+  } catch (error) {
+    return gatewayErrorResponse(error);
+  }
 }
