@@ -13,11 +13,11 @@ export async function PATCH(
     !body ||
     typeof body !== "object" ||
     Array.isArray(body) ||
-    typeof body.start !== "string" ||
-    typeof body.end !== "string"
+    typeof body.startAt !== "string" ||
+    typeof body.endAt !== "string"
   ) {
     return NextResponse.json(
-      { error: "start and end are required" },
+      { error: "startAt and endAt are required" },
       { status: 400 },
     );
   }
@@ -28,7 +28,7 @@ export async function PATCH(
         `/v1/tasks/sessions/${encodeURIComponent(sessionId)}`,
         {
           method: "PATCH",
-          body: JSON.stringify({ start: body.start, end: body.end }),
+          body: JSON.stringify({ startAt: body.startAt, endAt: body.endAt }),
         },
       ),
     );

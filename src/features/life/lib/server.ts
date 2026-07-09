@@ -19,6 +19,10 @@ import type {
 import { platformCalendarEventToUiEvent } from "./calendar-adapters";
 import { getWeekStart, toDateString } from "./calendar-utils";
 import { resolveTimeZone } from "./google-api";
+import {
+  taskPlanToCalendarEvents,
+  taskPlanToPriorityQueue,
+} from "./task-plan-adapters";
 import type { PlatformCalendarEvent, TaskPlan } from "./task-plan-types";
 
 function localLifeSnapshot(): LifeSnapshot {
@@ -31,8 +35,8 @@ function localLifeSnapshot(): LifeSnapshot {
     spotifyStatus: "unavailable",
     timezoneLabel: resolveTimeZone(),
     queue: [],
-    doNow: "Open agent chat.",
-    doNext: "Use anorvis-os-backed skills for calendar/task context.",
+    doNow: "Open the life workspace.",
+    doNext: "Connect calendar/task context through Anorvis OS.",
     todayEvents: [],
     currentHour: new Date().getHours(),
     executionScore: null,
@@ -123,32 +127,6 @@ async function fetchTaskPlanEvents(): Promise<CalendarEvent[]> {
   return plan ? taskPlanToCalendarEvents(plan) : [];
 }
 
-function taskPlanToCalendarEvents(plan: TaskPlan): CalendarEvent[] {
-  const deadlines: CalendarEvent[] = plan.tasks.flatMap((task) => {
-    if (task.status !== "open" || !task.date) return [];
-    const hasExplicitTime = /T\d{2}:\d{2}/.test(task.date);
-    const due = hasExplicitTime
-      ? new Date(task.date)
-      : new Date(`${task.date}T12:00:00`);
-    if (Number.isNaN(due.getTime())) return [];
-    return [
-      {
-        id: `task-deadline-${task.id}`,
-        summary: task.title,
-        startMinute: 0,
-        endMinute: 1440,
-        type: "taskDeadline",
-        dayIndex: due.getDay(),
-        date: hasExplicitTime ? toDateString(due) : task.date,
-        allDay: true,
-        taskId: task.id,
-        source: "task",
-      },
-    ];
-  });
-  return deadlines;
-}
-
 export const getLifeSnapshot = async (_opts?: {
   skipCalendar?: boolean;
 }): Promise<LifeSnapshot> => {
@@ -171,80 +149,49 @@ export const getLifeSnapshot = async (_opts?: {
       : status.hasClientConfig
         ? "available"
         : "unavailable";
-    if (status.connected && !_opts?.skipCalendar) {
-      events = (await fetchMultiCalendarEvents()).items;
+    if (status.connected) {
+      events = _opts?.skipCalendar
+        ? taskPlanToCalendarEvents(taskPlan)
+        : (await fetchMultiCalendarEvents()).items;
     }
   } catch {
     googleStatus = "unavailable";
   }
 
   if (googleStatus !== "connected") {
-    const taskEvents = taskPlan ? taskPlanToCalendarEvents(taskPlan) : [];
+    const calendarEvents = _opts?.skipCalendar
+      ? taskPlan
+        ? taskPlanToCalendarEvents(taskPlan)
+        : []
+      : (await fetchMultiCalendarEvents()).items;
     return {
-      ...base,
+      ...lifeSnapshotFromCalendar(base, calendarEvents, {
+        hasGoogleCalendar: false,
+        googleCalendarStatus: googleStatus,
+        executionScoreStatusText: "local calendar stored through anorvis-os",
+      }),
       queue: taskPlanToPriorityQueue(taskPlan),
-      todayCalendarEvents: taskEvents.filter(
-        (event) => event.date === toDateString(new Date()),
-      ),
-      weekCalendarEvents: taskEvents,
-      googleCalendarStatus: googleStatus,
       googleTasksStatus: "unavailable",
     };
   }
 
   return {
-    ...lifeSnapshotFromGoogleCalendar(base, events),
+    ...lifeSnapshotFromCalendar(base, events, {
+      hasGoogleCalendar: true,
+      googleCalendarStatus: "connected",
+      executionScoreStatusText: "google calendar connected through anorvis-os",
+    }),
     queue: taskPlanToPriorityQueue(taskPlan),
   };
 };
 
-function taskPlanToPriorityQueue(plan: TaskPlan | null): LifeSnapshot["queue"] {
-  if (!plan) return [];
-  const sessionByTask = new Map(
-    plan.sessions
-      .filter((session) => !session.completed)
-      .map((session) => [session.taskId, session]),
-  );
-  const prepByTask = new Map(plan.prepPackages.map((pkg) => [pkg.taskId, pkg]));
-  return plan.tasks
-    .filter((task) => task.status === "open")
-    .map((task) => {
-      const prep = prepByTask.get(task.id);
-      const dueAt = task.date ? Date.parse(task.date) : null;
-      return {
-        id: task.id,
-        title: task.title,
-        source: "anorvis-os",
-        dueAt,
-        dueContext: task.date
-          ? `by ${new Date(task.date).toLocaleDateString()}`
-          : "next 7 days",
-        label: task.date
-          ? Date.parse(task.date) < Date.now()
-            ? "overdue"
-            : "scheduled"
-          : "no date",
-        score:
-          task.priority === "urgent" ? 3 : task.priority === "high" ? 2 : 1,
-        notes: task.notes,
-        links: task.links,
-        durationMinutes: task.durationMinutes,
-        priority: task.priority,
-        multiSession: task.multiSession,
-        scheduledStart: sessionByTask.get(task.id)?.start ?? null,
-        scheduledEnd: sessionByTask.get(task.id)?.end ?? null,
-        conflictState: sessionByTask.get(task.id)?.conflictState ?? null,
-        prepStatus: prep?.status ?? null,
-        prepSummary: prep?.summary ?? null,
-        suggestedSteps: prep?.suggestedSteps ?? [],
-        risksOrQuestions: prep?.risksOrQuestions ?? [],
-      };
-    });
-}
-
-function lifeSnapshotFromGoogleCalendar(
+function lifeSnapshotFromCalendar(
   base: LifeSnapshot,
   events: CalendarEvent[],
+  status: Pick<
+    LifeSnapshot,
+    "hasGoogleCalendar" | "googleCalendarStatus" | "executionScoreStatusText"
+  >,
 ): LifeSnapshot {
   const now = new Date();
   const todayKey = toDateString(now);
@@ -267,13 +214,24 @@ function lifeSnapshotFromGoogleCalendar(
       type: event.type as TodayEvent["type"],
     }));
 
+  const scheduledTodayEvents = todayCalendarEvents
+    .filter(
+      (event) =>
+        !event.allDay &&
+        (event.type === "default" ||
+          event.type === "focusTime" ||
+          event.type === "outOfOffice" ||
+          event.type === "plannedTask"),
+    )
+    .sort((left, right) => left.startMinute - right.startMinute);
+
   const currentMinute = now.getHours() * 60 + now.getMinutes();
-  const currentEvent = todayCalendarEvents.find(
+  const currentEvent = scheduledTodayEvents.find(
     (event) =>
       event.startMinute <= currentMinute && event.endMinute >= currentMinute,
   );
   const next =
-    todayCalendarEvents.find((event) => event.startMinute > currentMinute) ??
+    scheduledTodayEvents.find((event) => event.startMinute > currentMinute) ??
     null;
   const weekEventCounts = Array.from(
     { length: 7 },
@@ -282,8 +240,8 @@ function lifeSnapshotFromGoogleCalendar(
 
   return {
     ...base,
-    hasGoogleCalendar: true,
-    googleCalendarStatus: "connected",
+    hasGoogleCalendar: status.hasGoogleCalendar,
+    googleCalendarStatus: status.googleCalendarStatus,
     todayEvents,
     todayCalendarEvents,
     weekCalendarEvents: events,
@@ -305,6 +263,6 @@ function lifeSnapshotFromGoogleCalendar(
     doNext: next
       ? `Upcoming: ${next.summary}`
       : "Review priorities for the day.",
-    executionScoreStatusText: "google calendar connected through anorvis-os",
+    executionScoreStatusText: status.executionScoreStatusText,
   };
 }

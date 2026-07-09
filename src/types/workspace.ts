@@ -67,7 +67,6 @@ export type LifePriorityTask = {
   multiSession?: boolean;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
-  conflictState?: "none" | "overflow" | "blocked" | null;
   prepStatus?: string | null;
   prepSummary?: string | null;
   suggestedSteps?: string[];
@@ -96,9 +95,11 @@ export type CalendarEvent = {
   dayIndex?: number; // 0=Sun..6=Sat, present in week view
   date: string; // YYYY-MM-DD in user's timezone
   allDay?: boolean;
-  conflictState?: "none" | "overflow" | "blocked";
   taskId?: string;
+  sessionId?: string;
   tag?: string | null;
+  location?: string;
+  description?: string;
   source?: "local" | "google-calendar" | "task" | string;
   calendarId?: string | null;
   readOnly?: boolean;

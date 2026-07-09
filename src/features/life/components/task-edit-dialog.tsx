@@ -12,11 +12,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@anorvis/ui/dropdown-menu";
-import { lifeStyles, workspacePageStyles } from "@anorvis/ui/styles";
+import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
-import { updateTask } from "@/features/life/api/life";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
+import { deleteTask, updateTask } from "@/features/life/api/life";
+import { invalidateAll } from "@/features/life/lib/calendar-cache";
+import { toDateString } from "@/features/life/lib/calendar-utils";
 import { queryKeys } from "@/lib/query/keys";
 import type {
   CalendarEvent,
@@ -31,16 +36,15 @@ type OptimisticTaskInput = {
   notes: string | null;
   links: string[];
   durationMinutes?: number;
-  date: string | null;
+  dueAt: string | null;
   priority: TaskPriority;
-  multiSession: boolean;
 };
 
 function dateInputValue(value: number | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return toDateString(date);
 }
 
 function timeInputValue(value: number | null) {
@@ -48,6 +52,12 @@ function timeInputValue(value: number | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toTimeString().slice(0, 5);
+}
+
+function invalidateDateCache(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return;
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) invalidateAll(date);
 }
 
 function priorityScore(priority: TaskPriority) {
@@ -71,7 +81,7 @@ function optimisticTask(
   task: LifePriorityTask,
   input: OptimisticTaskInput,
 ): LifePriorityTask {
-  const dueAt = input.date ? Date.parse(input.date) : null;
+  const dueAt = input.dueAt ? Date.parse(input.dueAt) : null;
   return {
     ...task,
     title: input.title,
@@ -81,9 +91,8 @@ function optimisticTask(
       ? { durationMinutes: input.durationMinutes }
       : {}),
     priority: input.priority,
-    multiSession: input.multiSession,
     dueAt,
-    dueContext: taskDueContext(input.date),
+    dueContext: taskDueContext(input.dueAt),
     label: taskLabel(dueAt),
     score: priorityScore(input.priority),
   };
@@ -93,14 +102,14 @@ function optimisticCalendarEvent(
   event: CalendarEvent,
   input: OptimisticTaskInput,
 ): CalendarEvent | null {
-  if (!input.date && event.type === "taskDeadline") return null;
-  if (!input.date) {
+  if (!input.dueAt && event.type === "taskDeadline") return null;
+  if (!input.dueAt) {
     return {
       ...event,
       summary: input.title,
     };
   }
-  const date = new Date(input.date);
+  const date = new Date(input.dueAt);
   if (Number.isNaN(date.getTime())) {
     return {
       ...event,
@@ -110,7 +119,7 @@ function optimisticCalendarEvent(
   return {
     ...event,
     summary: input.title,
-    date: input.date.slice(0, 10),
+    date: toDateString(date),
     dayIndex: date.getDay(),
   };
 }
@@ -127,12 +136,32 @@ function optimisticCalendarEvents(
   });
 }
 
-function TaskEditForm({
+function removeTaskFromCaches(
+  snapshot: LifeSnapshot | undefined,
+  taskId: string,
+) {
+  return snapshot
+    ? {
+        ...snapshot,
+        queue: snapshot.queue.filter((entry) => entry.id !== taskId),
+        todayCalendarEvents: snapshot.todayCalendarEvents.filter(
+          (event) => event.taskId !== taskId,
+        ),
+        weekCalendarEvents: snapshot.weekCalendarEvents.filter(
+          (event) => event.taskId !== taskId,
+        ),
+      }
+    : snapshot;
+}
+
+export function TaskEditForm({
   task,
   onClose,
+  footerClassName = workspaceModalFooterClass,
 }: {
   task: LifePriorityTask;
   onClose: () => void;
+  footerClassName?: string;
 }) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(task.title);
@@ -147,7 +176,6 @@ function TaskEditForm({
   const [priority, setPriority] = useState<TaskPriority>(
     task.priority ?? "normal",
   );
-  const [multiSession, setMultiSession] = useState(Boolean(task.multiSession));
   const [error, setError] = useState<string | null>(null);
   const updateMutation = useMutation({
     mutationFn: (input: OptimisticTaskInput) => updateTask(task.id, input),
@@ -202,6 +230,27 @@ function TaskEditForm({
         queryClient.setQueryData(queryKey, data);
       }
     },
+    onSettled: (_data, _error, input) => {
+      invalidateDateCache(task.dueAt);
+      invalidateDateCache(input.dueAt);
+      queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
+      queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteTask,
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["life"] });
+      queryClient.setQueryData<LifeSnapshot>(
+        queryKeys.life.snapshot(),
+        (snapshot) => removeTaskFromCaches(snapshot, id),
+      );
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: ["life", "calendar"] },
+        (events) => events?.filter((event) => event.taskId !== id),
+      );
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
@@ -234,11 +283,10 @@ function TaskEditForm({
           notes: notes.trim() || null,
           links: Array.from(new Set(normalizedLinks)),
           ...(durationInput ? { durationMinutes: Number(durationInput) } : {}),
-          date: dueDate
+          dueAt: dueDate
             ? new Date(`${dueDate}T${dueTime || "23:59"}`).toISOString()
             : null,
           priority,
-          multiSession,
         });
         onClose();
       } catch {
@@ -254,14 +302,23 @@ function TaskEditForm({
       dueDate,
       dueTime,
       priority,
-      multiSession,
       updateMutation,
       onClose,
     ],
   );
 
+  const deleteCurrentTask = useCallback(async () => {
+    setError(null);
+    try {
+      await deleteMutation.mutateAsync(task.id);
+      onClose();
+    } catch {
+      setError("couldn't delete task");
+    }
+  }, [deleteMutation, task.id, onClose]);
+
   return (
-    <form onSubmit={submit} className={workspacePageStyles.formGroup}>
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col space-y-3">
       {error && <p className={workspacePageStyles.errorText}>{error}</p>}
       <label className={workspacePageStyles.formLabel}>
         <span className={workspacePageStyles.metricLabel}>title</span>
@@ -363,7 +420,7 @@ function TaskEditForm({
                   }
                   className={workspacePageStyles.inlineAction}
                 >
-                  remove
+                  delete
                 </button>
               </div>
             ))}
@@ -393,20 +450,16 @@ function TaskEditForm({
           </button>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => setMultiSession((value) => !value)}
-        className={`${workspacePageStyles.toggleButton} ${
-          multiSession ? "border-foreground text-foreground" : ""
-        }`}
-      >
-        multi-session
-      </button>
-      {task.conflictState && task.conflictState !== "none" && (
-        <p className={lifeStyles.statusPillDanger}>{task.conflictState}</p>
-      )}
 
-      <DialogFooter>
+      <DialogFooter className={footerClassName}>
+        <button
+          type="button"
+          onClick={deleteCurrentTask}
+          disabled={deleteMutation.isPending || updateMutation.isPending}
+          className={workspacePageStyles.modalDangerButton}
+        >
+          {deleteMutation.isPending ? "..." : "delete"}
+        </button>
         <button
           type="button"
           onClick={onClose}

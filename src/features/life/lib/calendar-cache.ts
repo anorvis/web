@@ -47,7 +47,12 @@ function createCache<T>() {
     return promise;
   }
 
-  return { get, set, invalidate, fetchOnce };
+  function clear() {
+    store.clear();
+    inflight.clear();
+  }
+
+  return { get, set, invalidate, fetchOnce, clear };
 }
 
 export const dayCache = createCache<CalendarEvent[]>();
@@ -95,4 +100,16 @@ export function invalidateAll(date: Date) {
   dayCache.invalidate(toDateString(date));
   weekCache.invalidate(toWeekKey(date));
   monthCache.invalidate(toMonthKey(date));
+}
+
+export function invalidateCalendarCaches() {
+  dayCache.clear();
+  weekCache.clear();
+  monthCache.clear();
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("anorvis:calendar-cache-invalidated", () => {
+    invalidateCalendarCaches();
+  });
 }

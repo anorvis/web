@@ -2,14 +2,20 @@
 
 import {
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@anorvis/ui/dialog";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 import { createCalendarEvent } from "@/features/life/api/life";
+import { TagSelect } from "@/features/life/components/tag-select";
+import { invalidateAll } from "@/features/life/lib/calendar-cache";
 import { calendarQueryKey } from "@/features/life/lib/calendar-query";
 import {
   formatDateLabel,
@@ -29,7 +35,13 @@ function timeToMinute(value: string) {
   return Number(hour) * 60 + Number(minute);
 }
 
-function EventForm({ state }: { state: AddEventState }) {
+function EventForm({
+  state,
+  tagOptions,
+}: {
+  state: AddEventState;
+  tagOptions: string[];
+}) {
   const queryClient = useQueryClient();
   const { calendarMode, selectedDate, setAddEvent } = useLifeStore();
   const [summary, setSummary] = useState("");
@@ -46,9 +58,9 @@ function EventForm({ state }: { state: AddEventState }) {
       e.preventDefault();
       if (!summary.trim()) return;
       try {
-        const startDateTime = new Date(`${dateStr}T${startTime}`).toISOString();
-        const endDateTime = new Date(`${dateStr}T${endTime}`).toISOString();
-        const trimmedTag = tag.trim().toLowerCase();
+        const startAt = new Date(`${dateStr}T${startTime}`).toISOString();
+        const endAt = new Date(`${dateStr}T${endTime}`).toISOString();
+        const trimmedTag = tag.trim();
         const optimisticEvent: CalendarEvent = {
           id: `optimistic-${crypto.randomUUID()}`,
           summary: summary.trim(),
@@ -61,6 +73,8 @@ function EventForm({ state }: { state: AddEventState }) {
           dayIndex: new Date(`${dateStr}T12:00:00`).getDay(),
           date: dateStr,
           tag: trimmedTag || null,
+          location: location.trim() || undefined,
+          description: description.trim() || undefined,
         };
         queryClient.setQueryData<CalendarEvent[]>(
           calendarQueryKey(calendarMode, selectedDate),
@@ -69,12 +83,13 @@ function EventForm({ state }: { state: AddEventState }) {
         setAddEvent(null);
         await createEventMutation.mutateAsync({
           summary: summary.trim(),
-          startDateTime,
-          endDateTime,
+          startAt,
+          endAt,
           ...(location.trim() && { location: location.trim() }),
           ...(description.trim() && { description: description.trim() }),
           ...(trimmedTag && { tag: trimmedTag }),
         });
+        invalidateAll(new Date(startAt));
         await queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
       } catch {
         await queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
@@ -134,13 +149,7 @@ function EventForm({ state }: { state: AddEventState }) {
         placeholder="location"
         className={`w-full ${workspacePageStyles.inlineInput}`}
       />
-      <input
-        type="text"
-        value={tag}
-        onChange={(e) => setTag(e.target.value)}
-        placeholder="tag (work, personal, health...)"
-        className={`w-full ${workspacePageStyles.inlineInput}`}
-      />
+      <TagSelect value={tag} onChange={setTag} options={tagOptions} />
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
@@ -148,7 +157,7 @@ function EventForm({ state }: { state: AddEventState }) {
         rows={2}
         className={`w-full resize-none ${workspacePageStyles.inlineInput}`}
       />
-      <div className={workspacePageStyles.formActions}>
+      <DialogFooter className={workspaceModalFooterClass}>
         <button
           type="button"
           onClick={() => setAddEvent(null)}
@@ -163,12 +172,12 @@ function EventForm({ state }: { state: AddEventState }) {
         >
           {createEventMutation.isPending ? "..." : "create"}
         </button>
-      </div>
+      </DialogFooter>
     </form>
   );
 }
 
-export function AddEventDialog() {
+export function AddEventDialog({ tagOptions = [] }: { tagOptions?: string[] }) {
   const { addEvent: state, setAddEvent } = useLifeStore();
   const lastStateRef = useRef<AddEventState | null>(null);
   if (state) lastStateRef.current = state;
@@ -193,6 +202,7 @@ export function AddEventDialog() {
         <EventForm
           key={`${displayState.date.getTime()}-${displayState.startTime}`}
           state={displayState}
+          tagOptions={tagOptions}
         />
       )}
     </WorkspaceDialog>

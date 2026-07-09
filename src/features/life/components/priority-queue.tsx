@@ -23,7 +23,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useReducer, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 import { completeTask, createTask, deleteTask } from "@/features/life/api/life";
 import { TaskEditDialog } from "@/features/life/components/task-edit-dialog";
 import { EmptyTaskText } from "@/features/life/components/task-row";
@@ -50,7 +53,6 @@ const INITIAL_TASK_FORM = {
   dueTime: "",
   durationMinutes: "",
   priority: "normal" as TaskPriority,
-  multiSession: false,
   error: null as string | null,
 };
 
@@ -61,7 +63,6 @@ type TaskFormAction =
       field: keyof TaskFormState;
       value: string | boolean | null;
     }
-  | { type: "toggleMultiSession" }
   | { type: "reset" };
 
 function taskFormReducer(
@@ -71,8 +72,6 @@ function taskFormReducer(
   switch (action.type) {
     case "set":
       return { ...state, [action.field]: action.value };
-    case "toggleMultiSession":
-      return { ...state, multiSession: !state.multiSession };
     case "reset":
       return INITIAL_TASK_FORM;
   }
@@ -186,8 +185,15 @@ function DeleteTaskButton({
   );
 }
 
-export function AddTaskButton() {
-  const [open, setOpen] = useState(false);
+export function CreateTaskForm({
+  onDone,
+  onCancel,
+  footerClassName = workspaceModalFooterClass,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+  footerClassName?: string;
+}) {
   const [form, dispatch] = useReducer(taskFormReducer, INITIAL_TASK_FORM);
   const queryClient = useQueryClient();
   const createTaskMutation = useMutation({
@@ -200,7 +206,7 @@ export function AddTaskButton() {
 
   const reset = () => {
     dispatch({ type: "reset" });
-    setOpen(false);
+    onCancel();
   };
 
   const submit = useCallback(
@@ -220,18 +226,17 @@ export function AddTaskButton() {
           ...(form.durationMinutes.trim()
             ? { durationMinutes: Number(form.durationMinutes) }
             : {}),
-          date: form.dueDate
+          dueAt: form.dueDate
             ? new Date(
                 `${form.dueDate}T${form.dueTime || "23:59"}`,
               ).toISOString()
             : null,
           priority: form.priority,
-          multiSession: form.multiSession,
         };
 
         await createTaskMutation.mutateAsync(body);
         dispatch({ type: "reset" });
-        setOpen(false);
+        onDone();
       } catch {
         dispatch({
           type: "set",
@@ -240,9 +245,166 @@ export function AddTaskButton() {
         });
       }
     },
-    [form, createTaskMutation],
+    [form, createTaskMutation, onDone],
   );
 
+  return (
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col space-y-3">
+      {form.error && (
+        <p className="text-[0.6rem] text-destructive">{form.error}</p>
+      )}
+      <input
+        type="text"
+        value={form.title}
+        onChange={(e) =>
+          dispatch({ type: "set", field: "title", value: e.target.value })
+        }
+        placeholder="title"
+        className={`w-full ${workspacePageStyles.inlineInput}`}
+        aria-label="task title"
+        autoFocus
+      />
+      <label className="space-y-1">
+        <span className={workspacePageStyles.metricLabel}>description</span>
+        <textarea
+          value={form.description}
+          onChange={(e) =>
+            dispatch({
+              type: "set",
+              field: "description",
+              value: e.target.value,
+            })
+          }
+          placeholder="context, constraints, or notes for the prep package"
+          className={`min-h-24 w-full resize-none ${workspacePageStyles.inlineInput}`}
+          aria-label="task description"
+        />
+      </label>
+      <label className="space-y-1">
+        <span className={workspacePageStyles.metricLabel}>links</span>
+        <textarea
+          value={form.links}
+          onChange={(e) =>
+            dispatch({ type: "set", field: "links", value: e.target.value })
+          }
+          placeholder="one link per line"
+          className={`min-h-16 w-full resize-none ${workspacePageStyles.inlineInput}`}
+          aria-label="task links"
+        />
+      </label>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="space-y-1">
+          <span className={workspacePageStyles.metricLabel}>task length</span>
+          <input
+            type="number"
+            list="task-length-options"
+            min={1}
+            value={form.durationMinutes}
+            onChange={(e) =>
+              dispatch({
+                type: "set",
+                field: "durationMinutes",
+                value: e.target.value,
+              })
+            }
+            placeholder="optional minutes"
+            className={`w-full ${workspacePageStyles.inlineInputSmall}`}
+            aria-label="task length minutes"
+          />
+          <datalist id="task-length-options">
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+          </datalist>
+        </label>
+        <label className="space-y-1">
+          <span className={workspacePageStyles.metricLabel}>date</span>
+          <input
+            type="date"
+            value={form.dueDate}
+            onChange={(e) =>
+              dispatch({
+                type: "set",
+                field: "dueDate",
+                value: e.target.value,
+              })
+            }
+            className={`w-full ${workspacePageStyles.inlineInputSmall}`}
+            aria-label="task due date"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className={workspacePageStyles.metricLabel}>time</span>
+          <input
+            type="time"
+            list="task-time-options"
+            value={form.dueTime}
+            onChange={(e) =>
+              dispatch({
+                type: "set",
+                field: "dueTime",
+                value: e.target.value,
+              })
+            }
+            className={`w-full ${workspacePageStyles.inlineInputSmall}`}
+            aria-label="task due time"
+          />
+          <datalist id="task-time-options">
+            <option value="09:00">9:00 AM</option>
+            <option value="12:00">12:00 PM</option>
+            <option value="17:00">5:00 PM</option>
+            <option value="18:00">6:00 PM</option>
+            <option value="21:00">9:00 PM</option>
+            <option value="23:59">end of day</option>
+          </datalist>
+        </label>
+        <label className="space-y-1">
+          <span className={workspacePageStyles.metricLabel}>priority</span>
+          <select
+            value={form.priority}
+            onChange={(e) =>
+              dispatch({
+                type: "set",
+                field: "priority",
+                value: e.target.value as TaskPriority,
+              })
+            }
+            className={`w-full ${workspacePageStyles.inlineInputSmall}`}
+            aria-label="task priority"
+          >
+            <option value="low">low</option>
+            <option value="normal">normal</option>
+            <option value="high">high</option>
+            <option value="urgent">urgent</option>
+          </select>
+        </label>
+      </div>
+      <DialogFooter className={footerClassName}>
+        <button
+          type="button"
+          onClick={reset}
+          className={workspacePageStyles.modalButton}
+        >
+          cancel
+        </button>
+        <button
+          type="submit"
+          disabled={createTaskMutation.isPending || !form.title.trim()}
+          className={workspacePageStyles.modalButton}
+        >
+          {createTaskMutation.isPending ? "..." : "add"}
+        </button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+export function AddTaskButton() {
+  const [open, setOpen] = useState(false);
   return (
     <>
       <button
@@ -255,7 +417,7 @@ export function AddTaskButton() {
       </button>
       <WorkspaceDialog
         open={open}
-        onOpenChange={(nextOpen) => (nextOpen ? setOpen(true) : reset())}
+        onOpenChange={(nextOpen) => setOpen(nextOpen)}
       >
         <DialogHeader>
           <DialogTitle className={workspacePageStyles.cardTitle}>
@@ -265,168 +427,10 @@ export function AddTaskButton() {
             create schedulable work for anorvis-os.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-3">
-          {form.error && (
-            <p className="text-[0.6rem] text-destructive">{form.error}</p>
-          )}
-          <input
-            type="text"
-            value={form.title}
-            onChange={(e) =>
-              dispatch({ type: "set", field: "title", value: e.target.value })
-            }
-            placeholder="title"
-            className={`w-full ${workspacePageStyles.inlineInput}`}
-            aria-label="task title"
-          />
-          <label className="space-y-1">
-            <span className={workspacePageStyles.metricLabel}>description</span>
-            <textarea
-              value={form.description}
-              onChange={(e) =>
-                dispatch({
-                  type: "set",
-                  field: "description",
-                  value: e.target.value,
-                })
-              }
-              placeholder="context, constraints, or notes for the prep package"
-              className={`min-h-24 w-full resize-none ${workspacePageStyles.inlineInput}`}
-              aria-label="task description"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className={workspacePageStyles.metricLabel}>links</span>
-            <textarea
-              value={form.links}
-              onChange={(e) =>
-                dispatch({ type: "set", field: "links", value: e.target.value })
-              }
-              placeholder="one link per line"
-              className={`min-h-16 w-full resize-none ${workspacePageStyles.inlineInput}`}
-              aria-label="task links"
-            />
-          </label>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="space-y-1">
-              <span className={workspacePageStyles.metricLabel}>
-                task length
-              </span>
-              <input
-                type="number"
-                list="task-length-options"
-                min={1}
-                value={form.durationMinutes}
-                onChange={(e) =>
-                  dispatch({
-                    type: "set",
-                    field: "durationMinutes",
-                    value: e.target.value,
-                  })
-                }
-                placeholder="optional minutes"
-                className={`w-full ${workspacePageStyles.inlineInputSmall}`}
-                aria-label="task length minutes"
-              />
-              <datalist id="task-length-options">
-                <option value="15">15 min</option>
-                <option value="30">30 min</option>
-                <option value="45">45 min</option>
-                <option value="60">1 hour</option>
-                <option value="90">1.5 hours</option>
-                <option value="120">2 hours</option>
-                <option value="180">3 hours</option>
-              </datalist>
-            </label>
-            <label className="space-y-1">
-              <span className={workspacePageStyles.metricLabel}>date</span>
-              <input
-                type="date"
-                value={form.dueDate}
-                onChange={(e) =>
-                  dispatch({
-                    type: "set",
-                    field: "dueDate",
-                    value: e.target.value,
-                  })
-                }
-                className={`w-full ${workspacePageStyles.inlineInputSmall}`}
-                aria-label="task due date"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={workspacePageStyles.metricLabel}>time</span>
-              <input
-                type="time"
-                list="task-time-options"
-                value={form.dueTime}
-                onChange={(e) =>
-                  dispatch({
-                    type: "set",
-                    field: "dueTime",
-                    value: e.target.value,
-                  })
-                }
-                className={`w-full ${workspacePageStyles.inlineInputSmall}`}
-                aria-label="task due time"
-              />
-              <datalist id="task-time-options">
-                <option value="09:00">9:00 AM</option>
-                <option value="12:00">12:00 PM</option>
-                <option value="17:00">5:00 PM</option>
-                <option value="18:00">6:00 PM</option>
-                <option value="21:00">9:00 PM</option>
-                <option value="23:59">end of day</option>
-              </datalist>
-            </label>
-            <label className="space-y-1">
-              <span className={workspacePageStyles.metricLabel}>priority</span>
-              <select
-                value={form.priority}
-                onChange={(e) =>
-                  dispatch({
-                    type: "set",
-                    field: "priority",
-                    value: e.target.value as TaskPriority,
-                  })
-                }
-                className={`w-full ${workspacePageStyles.inlineInputSmall}`}
-                aria-label="task priority"
-              >
-                <option value="low">low</option>
-                <option value="normal">normal</option>
-                <option value="high">high</option>
-                <option value="urgent">urgent</option>
-              </select>
-            </label>
-          </div>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: "toggleMultiSession" })}
-            className={`${workspacePageStyles.toggleButton} ${
-              form.multiSession ? "border-foreground text-foreground" : ""
-            }`}
-            aria-pressed={form.multiSession}
-          >
-            multi-session
-          </button>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={reset}
-              className={workspacePageStyles.modalButton}
-            >
-              cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createTaskMutation.isPending || !form.title.trim()}
-              className={workspacePageStyles.modalButton}
-            >
-              {createTaskMutation.isPending ? "..." : "add"}
-            </button>
-          </DialogFooter>
-        </form>
+        <CreateTaskForm
+          onDone={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+        />
       </WorkspaceDialog>
     </>
   );

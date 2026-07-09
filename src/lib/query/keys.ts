@@ -18,11 +18,6 @@ export const queryKeys = {
   finance: {
     snapshot: () => ["finance", "snapshot"] as const,
   },
-  chat: {
-    sessions: (agent: string, search: string) =>
-      ["chat", "sessions", agent, search] as const,
-    messages: (sessionId: string) => ["chat", "messages", sessionId] as const,
-  },
   dev: {
     runs: () => ["dev", "runs"] as const,
     jobs: () => ["dev", "jobs"] as const,

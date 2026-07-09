@@ -5,8 +5,8 @@ export const runtime = "nodejs";
 
 function isEventBody(value: unknown): value is {
   summary: string;
-  startDateTime: string;
-  endDateTime: string;
+  startAt: string;
+  endAt: string;
   location?: string;
   description?: string;
   tag?: string;
@@ -17,10 +17,10 @@ function isEventBody(value: unknown): value is {
     !Array.isArray(value) &&
     "summary" in value &&
     typeof value.summary === "string" &&
-    "startDateTime" in value &&
-    typeof value.startDateTime === "string" &&
-    "endDateTime" in value &&
-    typeof value.endDateTime === "string"
+    "startAt" in value &&
+    typeof value.startAt === "string" &&
+    "endAt" in value &&
+    typeof value.endAt === "string"
   );
 }
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   if (!isEventBody(body) || !body.summary.trim()) {
     return NextResponse.json(
-      { error: "summary, startDateTime, and endDateTime are required" },
+      { error: "summary, startAt, and endAt are required" },
       { status: 400 },
     );
   }
@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     method: "POST",
     body: JSON.stringify({
       summary: body.summary.trim(),
-      startAt: body.startDateTime,
-      endAt: body.endDateTime,
+      startAt: body.startAt,
+      endAt: body.endAt,
       location: typeof body.location === "string" ? body.location : undefined,
       description:
         typeof body.description === "string" ? body.description : undefined,

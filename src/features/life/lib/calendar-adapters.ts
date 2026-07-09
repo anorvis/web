@@ -24,6 +24,8 @@ export function platformCalendarEventToUiEvent(
     dayIndex: start.getDay(),
     date: toDateString(start),
     tag: event.tag,
+    location: event.location,
+    description: event.description,
     source: event.source,
     readOnly: event.readOnly,
   };

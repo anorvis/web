@@ -10,10 +10,15 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   fetchCalendarEvents,
+  moveTaskSession,
   updateCalendarEvent,
   updateTask,
 } from "@/features/life/api/life";
-import { DAY_KEYS, groupByDay } from "@/features/life/lib/calendar-cache";
+import {
+  DAY_KEYS,
+  groupByDay,
+  invalidateAll,
+} from "@/features/life/lib/calendar-cache";
 import {
   calendarQueryKey,
   calendarRangeParams,
@@ -39,12 +44,47 @@ const CALENDAR_STALE_TIME_MS = 15 * 60_000;
 const CALENDAR_GC_TIME_MS = 24 * 60 * 60_000;
 const CALENDAR_PREFETCH_MONTH_RADIUS = 2;
 
+function eventInView(
+  event: CalendarEvent,
+  mode: CalendarMode,
+  selectedDate: Date,
+) {
+  if (mode === "day") return event.date === toDateString(selectedDate);
+  if (mode === "week") {
+    const weekStart = getWeekStart(selectedDate);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return (
+      event.date >= toDateString(weekStart) &&
+      event.date <= toDateString(weekEnd)
+    );
+  }
+  return (
+    event.date >=
+      toDateString(
+        new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+      ) &&
+    event.date <=
+      toDateString(
+        new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0),
+      )
+  );
+}
+
+function invalidateDateCache(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return;
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) invalidateAll(date);
+}
+
 // ── Main component ───────────────────────────────
 
 interface CalendarViewProps {
   hasCalendar: boolean;
   today: Date;
   tasks?: LifePriorityTask[];
+  events?: CalendarEvent[];
+  tagOptions?: string[];
 }
 
 export function CalendarView(props: CalendarViewProps) {
@@ -55,6 +95,8 @@ function useCalendarViewContent({
   hasCalendar,
   today,
   tasks = [],
+  events: modelEvents,
+  tagOptions = [],
 }: CalendarViewProps) {
   const todayRef = useRef(today);
   const queryClient = useQueryClient();
@@ -86,6 +128,23 @@ function useCalendarViewContent({
   const updateTaskMutation = useMutation({
     mutationFn: ({ id, input }: { id: string; input: unknown }) =>
       updateTask(id, input),
+    onSuccess: (_data, variables) => {
+      const task = tasks.find((candidate) => candidate.id === variables.id);
+      invalidateDateCache(task?.dueAt);
+      if (
+        typeof variables.input === "object" &&
+        variables.input !== null &&
+        "dueAt" in variables.input
+      ) {
+        invalidateDateCache(variables.input.dueAt as string | null | undefined);
+      }
+      queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
+    },
+  });
+  const moveTaskSessionMutation = useMutation({
+    mutationFn: moveTaskSession,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
@@ -97,13 +156,15 @@ function useCalendarViewContent({
     ? cachedCalendarData(queryClient, mode, selectedDate)
     : null;
 
+  const usesModelEvents = modelEvents !== undefined;
+  const isRealDate = selectedDate.getTime() !== 0;
   const calendarQuery = useQuery({
     queryKey: calendarQueryKey(mode, selectedDate),
     queryFn: () => fetchAndCacheCalendarRange(queryClient, selectedDate, mode),
-    enabled: hasCalendar,
+    enabled: hasCalendar && !usesModelEvents && isHydrated && isRealDate,
     staleTime: CALENDAR_STALE_TIME_MS,
     gcTime: CALENDAR_GC_TIME_MS,
-    refetchOnMount: "always",
+    refetchOnMount: false,
     placeholderData: fallbackCalendarData ?? undefined,
     initialData: fallbackCalendarData ?? undefined,
     initialDataUpdatedAt: fallbackCalendarData ? 0 : undefined,
@@ -111,16 +172,17 @@ function useCalendarViewContent({
 
   const events = useMemo(
     () =>
-      (calendarQuery.data ?? []).map(
-        (event) => optimisticMoves.get(event.id) ?? event,
-      ),
-    [calendarQuery.data, optimisticMoves],
+      (modelEvents ?? calendarQuery.data ?? [])
+        .filter((event) => eventInView(event, mode, selectedDate))
+        .map((event) => optimisticMoves.get(event.id) ?? event),
+    [calendarQuery.data, mode, modelEvents, optimisticMoves, selectedDate],
   );
-  const fetchError = calendarQuery.isError ? "couldn't load events" : null;
+  const fetchError =
+    !usesModelEvents && calendarQuery.isError ? "couldn't load events" : null;
 
   const prefetchView = useCallback(
     (date: Date, viewMode: CalendarMode) => {
-      if (!hasCalendar) return;
+      if (!hasCalendar || usesModelEvents) return;
       queryClient.prefetchQuery({
         queryKey: calendarQueryKey(viewMode, date),
         queryFn: () => fetchAndCacheCalendarRange(queryClient, date, viewMode),
@@ -128,12 +190,12 @@ function useCalendarViewContent({
         gcTime: CALENDAR_GC_TIME_MS,
       });
     },
-    [hasCalendar, queryClient],
+    [hasCalendar, queryClient, usesModelEvents],
   );
 
   const prefetchWindow = useCallback(
     (date: Date, viewMode: CalendarMode) => {
-      if (!hasCalendar) return;
+      if (!hasCalendar || usesModelEvents) return;
 
       prefetchView(date, viewMode);
       if (viewMode !== "month") {
@@ -152,7 +214,7 @@ function useCalendarViewContent({
         );
       }
     },
-    [hasCalendar, prefetchView],
+    [hasCalendar, prefetchView, usesModelEvents],
   );
 
   useMountEffect(() => {
@@ -238,11 +300,12 @@ function useCalendarViewContent({
   const handleEventMove = useCallback(
     async (event: CalendarEvent, colKey: string, minute: number) => {
       if (event.readOnly || event.source === "google-calendar") return;
-      const isTaskEvent =
-        event.type === "taskDeadline" || event.type === "plannedTask";
-      if (event.allDay && !isTaskEvent) return;
-      if (isTaskEvent && !event.taskId) return;
-
+      const isTaskDeadline = event.type === "taskDeadline";
+      const isPlannedTask = event.type === "plannedTask";
+      const taskSessionId = isPlannedTask ? event.sessionId : undefined;
+      if (event.allDay && !isTaskDeadline) return;
+      if (isTaskDeadline && !event.taskId) return;
+      if (isPlannedTask && !taskSessionId) return;
       const date = dateForColumn(colKey);
       const duration = Math.max(1, event.endMinute - event.startMinute);
       const start = new Date(date);
@@ -251,18 +314,18 @@ function useCalendarViewContent({
       const taskDate = toDateString(date);
       const moved: CalendarEvent = {
         ...event,
-        startMinute: isTaskEvent
+        startMinute: isTaskDeadline
           ? event.startMinute
           : start.getHours() * 60 + start.getMinutes(),
-        endMinute: isTaskEvent
+        endMinute: isTaskDeadline
           ? event.endMinute
           : Math.min(
               1440,
               start.getHours() * 60 + start.getMinutes() + duration,
             ),
         dayIndex: date.getDay(),
-        date: isTaskEvent ? taskDate : toDateString(start),
-        allDay: isTaskEvent,
+        date: isTaskDeadline ? taskDate : toDateString(start),
+        allDay: isTaskDeadline,
       };
       setOptimisticMoves((current) => {
         const next = new Map(current);
@@ -274,17 +337,23 @@ function useCalendarViewContent({
       if (detailEvent?.id === moved.id) setDetailEvent(moved);
 
       try {
-        if (isTaskEvent && event.taskId) {
+        if (isPlannedTask && taskSessionId) {
+          await moveTaskSessionMutation.mutateAsync({
+            id: taskSessionId,
+            startAt: start.toISOString(),
+            endAt: end.toISOString(),
+          });
+        } else if (isTaskDeadline && event.taskId) {
           await updateTaskMutation.mutateAsync({
             id: event.taskId,
-            input: { date: taskDate },
+            input: { dueAt: new Date(`${taskDate}T23:59:00`).toISOString() },
           });
         } else {
           await updateEventMutation.mutateAsync({
             id: event.id,
             summary: event.summary,
-            startDateTime: start.toISOString(),
-            endDateTime: end.toISOString(),
+            startAt: start.toISOString(),
+            endAt: end.toISOString(),
             tag: event.tag ?? undefined,
           });
         }
@@ -312,6 +381,7 @@ function useCalendarViewContent({
       setDetailEvent,
       updateEventMutation,
       updateTaskMutation,
+      moveTaskSessionMutation,
     ],
   );
 
@@ -363,6 +433,7 @@ function useCalendarViewContent({
       todayKey={todayKey}
       events={events}
       detailTask={detailTask}
+      tagOptions={tagOptions}
       onGoToday={goToday}
       onNavigate={navigate}
       onModeChange={(newMode) => {

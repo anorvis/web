@@ -3,8 +3,7 @@
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@anorvis/ui/dropdown-menu";
 import { workspacePageStyles } from "@anorvis/ui/styles";
@@ -31,6 +30,7 @@ export function CalendarFrame(props: {
   todayKey?: string;
   events: CalendarEvent[];
   detailTask: LifePriorityTask | null;
+  tagOptions: string[];
   onGoToday: () => void;
   onNavigate: (delta: number) => void;
   onModeChange: (mode: CalendarMode) => void;
@@ -67,8 +67,8 @@ export function CalendarFrame(props: {
         <p className={workspacePageStyles.errorText}>{props.fetchError}</p>
       )}
       <CalendarGrid {...props} />
-      <AddEventDialog />
-      <EventDetailDialog />
+      <AddEventDialog tagOptions={props.tagOptions} />
+      <EventDetailDialog tagOptions={props.tagOptions} />
       <TaskEditDialog
         task={props.detailTask}
         onOpenChange={props.onTaskDialogOpenChange}
@@ -173,20 +173,15 @@ function ModeMenu({
         align="end"
         className={workspacePageStyles.dropdownContent}
       >
-        <DropdownMenuRadioGroup
-          value={mode}
-          onValueChange={(value) => onModeChange(value as CalendarMode)}
-        >
-          {(["day", "week", "month"] as const).map((value) => (
-            <DropdownMenuRadioItem
-              key={value}
-              value={value}
-              className={workspacePageStyles.dropdownItem}
-            >
-              {value}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        {(["day", "week", "month"] as const).map((value) => (
+          <DropdownMenuItem
+            key={value}
+            className={workspacePageStyles.dropdownItem}
+            onSelect={() => onModeChange(value)}
+          >
+            {value}
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -226,6 +221,7 @@ function CalendarGrid({
           key={scrollKey}
           columns={dayColumns}
           today={today}
+          selectedDate={selectedDate}
           todayKey={todayKey}
           onSlotClick={onSlotClick}
           onEventClick={onEventClick}
@@ -237,6 +233,7 @@ function CalendarGrid({
           key={scrollKey}
           columns={weekColumns}
           today={today}
+          selectedDate={selectedDate}
           showHeader
           todayKey={todayKey}
           onSlotClick={onSlotClick}

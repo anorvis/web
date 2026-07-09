@@ -8,27 +8,36 @@ const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const MAX_VISIBLE_EVENTS = 3;
 
 function getMonthEventTone(event: CalendarEvent) {
-  if (event.type === "taskDeadline" || event.type === "plannedTask")
-    return calendarStyles.monthDeadlineLabel;
+  if (event.type === "taskDeadline") return calendarStyles.monthDeadlineLabel;
+  if (event.type === "plannedTask")
+    return "border-l-2 border-dashed border-l-teal-500 bg-teal-500/10 pl-1 text-[0.5rem] text-teal-800 dark:text-teal-100 truncate leading-tight";
+  if (event.type === "focusTime" && event.source === "time-block")
+    return "border-l-2 border-l-purple-500 bg-purple-500/10 pl-1 text-[0.5rem] text-purple-800 dark:text-purple-100 truncate leading-tight";
   if (event.source === "google-calendar") {
     return getMonthGoogleTone(event.calendarId ?? event.id);
   }
+  const tagTone = getMonthTagTone(event.tag);
+  if (tagTone) return tagTone;
   if (event.source === "local") {
     return "truncate border-l-2 border-l-foreground bg-foreground/10 pl-1 text-[0.5rem] leading-tight text-foreground";
   }
-  switch (event.tag?.toLowerCase()) {
+  return calendarStyles.monthEventLabel;
+}
+
+function getMonthTagTone(tag?: string | null) {
+  switch (tag?.toLowerCase()) {
     case "work":
-      return "truncate text-[0.55rem] leading-tight text-sky-600 dark:text-sky-300";
+      return "truncate border-l-2 border-l-sky-500 bg-sky-500/10 pl-1 text-[0.5rem] leading-tight text-sky-700 dark:text-sky-200";
     case "personal":
-      return "truncate text-[0.55rem] leading-tight text-violet-600 dark:text-violet-300";
+      return "truncate border-l-2 border-l-violet-500 bg-violet-500/10 pl-1 text-[0.5rem] leading-tight text-violet-700 dark:text-violet-200";
     case "health":
-      return "truncate text-[0.55rem] leading-tight text-emerald-600 dark:text-emerald-300";
+      return "truncate border-l-2 border-l-emerald-500 bg-emerald-500/10 pl-1 text-[0.5rem] leading-tight text-emerald-700 dark:text-emerald-200";
     case "social":
-      return "truncate text-[0.55rem] leading-tight text-pink-600 dark:text-pink-300";
+      return "truncate border-l-2 border-l-pink-500 bg-pink-500/10 pl-1 text-[0.5rem] leading-tight text-pink-700 dark:text-pink-200";
     case "travel":
-      return "truncate text-[0.55rem] leading-tight text-orange-600 dark:text-orange-300";
+      return "truncate border-l-2 border-l-orange-500 bg-orange-500/10 pl-1 text-[0.5rem] leading-tight text-orange-700 dark:text-orange-200";
     default:
-      return calendarStyles.monthEventLabel;
+      return "";
   }
 }
 

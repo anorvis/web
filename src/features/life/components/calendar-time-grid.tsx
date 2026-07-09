@@ -9,6 +9,8 @@ import {
 import {
   formatHour,
   formatMinuteRange,
+  toDateString,
+  weekHeaderDays,
 } from "@/features/life/lib/calendar-utils";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import type { CalendarEvent, LayoutEvent } from "@/types/workspace";
@@ -18,7 +20,6 @@ import type { CalendarEvent, LayoutEvent } from "@/types/workspace";
 const GUTTER_WIDTH = 48;
 const PX_PER_HOUR = 55;
 const GRID_PAD_TOP = Math.round(PX_PER_HOUR / 2);
-const WEEKDAY_LABELS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const DRAG_PREVIEW_ID_SUFFIX = "::drag-preview";
 const TASK_EVENT_TYPES = new Set<CalendarEvent["type"]>([
   "plannedTask",
@@ -37,26 +38,26 @@ function getNowMinute() {
 }
 
 function getEventBlockTone(event: CalendarEvent) {
-  if (event.type === "taskDeadline") return getTaskTone("deadline", event);
-  if (event.type === "plannedTask") return getTaskTone("session", event);
+  if (event.type === "taskDeadline") return getTaskTone("deadline");
+  if (event.type === "plannedTask") return getTaskTone("session");
+  if (event.type === "focusTime" && event.source === "time-block")
+    return "border-l-purple-500 bg-purple-500/10 text-purple-800 dark:text-purple-100";
   if (event.source === "google-calendar") {
     return getGoogleCalendarTone(event.calendarId ?? event.id);
   }
+  const tagTone = getTagTone(event.tag);
+  if (tagTone) return tagTone;
   if (event.source === "local") {
     return "border-l-foreground bg-foreground/10 text-foreground";
   }
-  const tagTone = getTagTone(event.tag);
-  if (tagTone) return tagTone;
   return "border-l-foreground bg-foreground/5 text-foreground";
 }
 
-function getTaskTone(kind: "deadline" | "session", event: CalendarEvent) {
+function getTaskTone(kind: "deadline" | "session") {
   if (kind === "deadline") {
     return "border-l-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-200";
   }
-  return event.conflictState && event.conflictState !== "none"
-    ? "border-l-red-500 bg-red-500/10"
-    : "border-l-cyan-500 border-dashed bg-cyan-500/10 text-cyan-800 dark:text-cyan-100";
+  return "border-l-teal-500 border-dashed bg-teal-500/10 text-teal-800 dark:text-teal-100";
 }
 
 function getGoogleCalendarTone(seed: string) {
@@ -186,7 +187,6 @@ const EventBlock = memo(function EventBlock({
       onDragEnd={onDragEnd}
     >
       <p className={calendarStyles.eventBlockTitle}>
-        {event.conflictState && event.conflictState !== "none" ? "! " : ""}
         {event.type === "taskDeadline" ? "due: " : ""}
         {event.tag ? `[${event.tag}] ` : ""}
         {event.summary}
@@ -448,11 +448,13 @@ const AllDayRow = memo(function AllDayRow({
                 key={event.id}
                 type="button"
                 className={`${
-                  event.type === "taskDeadline" || event.type === "plannedTask"
+                  event.type === "taskDeadline"
                     ? calendarStyles.deadlineAllDayChip
-                    : event.source === "google-calendar"
-                      ? calendarStyles.googleAllDayChip
-                      : calendarStyles.allDayChip
+                    : event.type === "plannedTask"
+                      ? "block w-full min-w-0 overflow-hidden border-l-2 border-l-teal-500 border-dashed bg-teal-500/10 px-1.5 py-0.5 text-left text-teal-800 hover:bg-teal-500/15 dark:text-teal-100"
+                      : event.source === "google-calendar"
+                        ? calendarStyles.googleAllDayChip
+                        : calendarStyles.allDayChip
                 } ${onEventClick ? "cursor-pointer" : ""} ${
                   isDraggableTaskEvent(event)
                     ? "cursor-grab active:cursor-grabbing"
@@ -500,8 +502,17 @@ const AllDayRow = memo(function AllDayRow({
 
 // ── Week column headers ──────────────────────────
 
-function WeekHeader({ today }: { today: Date }) {
-  const todayIdx = today.getDay();
+function WeekHeader({
+  columns,
+  selectedDate,
+  today,
+}: {
+  columns: TimeGridColumn[];
+  selectedDate: Date;
+  today: Date;
+}) {
+  const days = weekHeaderDays(selectedDate);
+  const todayKey = toDateString(today);
   return (
     <div
       className="grid shrink-0"
@@ -510,18 +521,21 @@ function WeekHeader({ today }: { today: Date }) {
       }}
     >
       <div className={calendarStyles.columnHeader} />
-      {WEEKDAY_LABELS.map((label, i) => (
-        <div
-          key={label}
-          className={
-            i === todayIdx
-              ? calendarStyles.columnHeaderToday
-              : calendarStyles.columnHeader
-          }
-        >
-          {label}
-        </div>
-      ))}
+      {columns.map((col, i) => {
+        const day = days[i];
+        return (
+          <div
+            key={col.key}
+            className={
+              day.dateKey === todayKey
+                ? calendarStyles.columnHeaderToday
+                : calendarStyles.columnHeader
+            }
+          >
+            {day.weekday} {day.dayOfMonth}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -545,6 +559,7 @@ type DragGhost = {
 type TimeGridProps = {
   columns: TimeGridColumn[];
   today: Date;
+  selectedDate: Date;
   showHeader?: boolean;
   todayKey?: string;
   onSlotClick?: (colKey: string, minute: number) => void;
@@ -555,6 +570,7 @@ type TimeGridProps = {
 export function TimeGrid({
   columns,
   today,
+  selectedDate,
   showHeader,
   todayKey,
   onSlotClick,
@@ -720,7 +736,13 @@ export function TimeGrid({
 
   return (
     <div className="flex flex-col h-full">
-      {showHeader && <WeekHeader today={today} />}
+      {showHeader && (
+        <WeekHeader
+          columns={columns}
+          selectedDate={selectedDate}
+          today={today}
+        />
+      )}
       <AllDayRow
         columns={columns}
         gridCols={gridCols}
@@ -734,7 +756,7 @@ export function TimeGrid({
       />
       {dragGhost && !dragPreview && (dragGhost.x || dragGhost.y) && (
         <div
-          className={`${calendarStyles.dragGhost} ${getTaskTone("deadline", dragGhost.event)}`}
+          className={`${calendarStyles.dragGhost} ${getTaskTone("deadline")}`}
           style={{
             transform: `translate3d(${dragGhost.x - dragGhost.offsetX}px, ${dragGhost.y - dragGhost.offsetY}px, 0)`,
           }}

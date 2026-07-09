@@ -14,6 +14,7 @@ type LifeState = {
   addEvent: AddEventState | null;
   detailEvent: CalendarEvent | null;
   detailTask: LifePriorityTask | null;
+  dismissedFocusSessionIds: string[];
   isCalendarFullscreen: boolean;
   setCalendarMode: (mode: CalendarMode) => void;
   setSelectedDate: (date: Date) => void;
@@ -21,6 +22,7 @@ type LifeState = {
   setDetailEvent: (event: CalendarEvent | null) => void;
   setDetailTask: (task: LifePriorityTask | null) => void;
   setCalendarFullscreen: (value: boolean) => void;
+  dismissFocusSession: (id: string) => void;
 };
 
 export const useLifeStore = create<LifeState>((set) => ({
@@ -30,6 +32,7 @@ export const useLifeStore = create<LifeState>((set) => ({
   detailEvent: null,
   detailTask: null,
   isCalendarFullscreen: false,
+  dismissedFocusSessionIds: [],
   setCalendarMode: (calendarMode) => set({ calendarMode }),
   setSelectedDate: (selectedDate) => set({ selectedDate }),
   setAddEvent: (addEvent) => set({ addEvent }),
@@ -37,4 +40,10 @@ export const useLifeStore = create<LifeState>((set) => ({
   setDetailTask: (detailTask) => set({ detailTask }),
   setCalendarFullscreen: (isCalendarFullscreen) =>
     set({ isCalendarFullscreen }),
+  dismissFocusSession: (id) =>
+    set((state) => ({
+      dismissedFocusSessionIds: state.dismissedFocusSessionIds.includes(id)
+        ? state.dismissedFocusSessionIds
+        : [...state.dismissedFocusSessionIds, id],
+    })),
 }));

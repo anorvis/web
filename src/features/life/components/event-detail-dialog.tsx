@@ -1,20 +1,32 @@
 "use client";
 
-import { DialogHeader, DialogTitle } from "@anorvis/ui/dialog";
+import { DialogFooter, DialogHeader, DialogTitle } from "@anorvis/ui/dialog";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 import {
   completeTask,
   deleteCalendarEvent,
   deleteTask,
   updateCalendarEvent,
 } from "@/features/life/api/life";
+import { TagSelect } from "@/features/life/components/tag-select";
+import { invalidateAll } from "@/features/life/lib/calendar-cache";
 import { minuteToTime } from "@/features/life/lib/calendar-utils";
 import { useLifeStore } from "@/features/life/stores/life-store";
+import { LOCAL_FOCUS_SESSION_ID_PREFIX } from "@/lib/life-intelligence/model";
 import { queryKeys } from "@/lib/query/keys";
 import type { CalendarEvent, LifeSnapshot } from "@/types/workspace";
+
+function invalidateDateCache(value: string | null | undefined) {
+  if (!value) return;
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  if (!Number.isNaN(date.getTime())) invalidateAll(date);
+}
 
 function removeEventFromCalendar(
   events: CalendarEvent[] | undefined,
@@ -45,14 +57,25 @@ function removeTaskFromSnapshot(
   };
 }
 
-function EventDetailForm({ event }: { event: CalendarEvent }) {
+export function EventDetailForm({
+  event,
+  tagOptions,
+  onClose,
+}: {
+  event: CalendarEvent;
+  tagOptions: string[];
+  onClose?: () => void;
+}) {
   const queryClient = useQueryClient();
-  const { setDetailEvent } = useLifeStore();
+  const { setDetailEvent, dismissFocusSession } = useLifeStore();
+  const close = onClose ?? (() => setDetailEvent(null));
   const [summary, setSummary] = useState(event.summary);
   const [dateStr, setDateStr] = useState(event.date);
   const [startTime, setStartTime] = useState(minuteToTime(event.startMinute));
   const [endTime, setEndTime] = useState(minuteToTime(event.endMinute));
   const [tag, setTag] = useState(event.tag ?? "");
+  const [location, setLocation] = useState(event.location ?? "");
+  const [description, setDescription] = useState(event.description ?? "");
   const [error, setError] = useState<string | null>(null);
   const updateEventMutation = useMutation({ mutationFn: updateCalendarEvent });
   const deleteEventMutation = useMutation({
@@ -64,8 +87,10 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
         (events) => removeEventFromCalendar(events, id),
       );
     },
-    onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: ["life", "calendar"] }),
+    onSettled: () => {
+      invalidateDateCache(event.date);
+      queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
+    },
   });
   const deleteTaskMutation = useMutation({
     mutationFn: deleteTask,
@@ -81,6 +106,7 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
       );
     },
     onSettled: () => {
+      invalidateDateCache(event.date);
       queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
@@ -100,6 +126,7 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
       );
     },
     onSettled: () => {
+      invalidateDateCache(event.date);
       queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.snapshot() });
       queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
@@ -107,9 +134,13 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
   });
   const isTaskDeadline = event.type === "taskDeadline";
   const isTask = isTaskDeadline || event.type === "plannedTask";
+  const isGeneratedFocusSession =
+    event.source === "time-block" &&
+    event.id.startsWith(LOCAL_FOCUS_SESSION_ID_PREFIX);
   const isGoogleEvent = event.source === "google-calendar" || event.readOnly;
   const isReadOnly = isTask || isGoogleEvent;
   const canDelete =
+    isGeneratedFocusSession ||
     (isTaskDeadline && !!event.taskId) ||
     (!isReadOnly && event.source !== "google-calendar");
   const canComplete = isTask && !!event.taskId;
@@ -121,16 +152,20 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
       if (!summary.trim()) return;
       setError(null);
       try {
-        const startDateTime = new Date(`${dateStr}T${startTime}`).toISOString();
-        const endDateTime = new Date(`${dateStr}T${endTime}`).toISOString();
+        const startAt = new Date(`${dateStr}T${startTime}`).toISOString();
+        const endAt = new Date(`${dateStr}T${endTime}`).toISOString();
         await updateEventMutation.mutateAsync({
           id: event.id,
           summary: summary.trim(),
-          startDateTime,
-          endDateTime,
-          tag: tag.trim().toLowerCase(),
+          startAt,
+          endAt,
+          location: location.trim(),
+          description: description.trim(),
+          tag: tag.trim(),
         });
-        setDetailEvent(null);
+        invalidateDateCache(event.date);
+        invalidateDateCache(dateStr);
+        close();
         await queryClient.invalidateQueries({ queryKey: ["life", "calendar"] });
       } catch {
         setError("couldn't update event");
@@ -142,27 +177,34 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
       startTime,
       endTime,
       event.id,
+      event.date,
+      location,
+      description,
       tag,
       isReadOnly,
       updateEventMutation,
       queryClient,
-      setDetailEvent,
+      close,
     ],
   );
 
   const remove = useCallback(async () => {
     if (!canDelete) return;
     setError(null);
-    setDetailEvent(null);
+    close();
     try {
-      if (isTaskDeadline && event.taskId) {
+      if (isGeneratedFocusSession) {
+        dismissFocusSession(event.id);
+      } else if (isTaskDeadline && event.taskId) {
         await deleteTaskMutation.mutateAsync(event.taskId);
       } else {
         await deleteEventMutation.mutateAsync(event.id);
       }
     } catch {
       setError(
-        isTaskDeadline ? "couldn't remove task" : "couldn't remove event",
+        isTaskDeadline || isGeneratedFocusSession
+          ? "couldn't delete task"
+          : "couldn't delete event",
       );
     }
   }, [
@@ -170,7 +212,9 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
     event.id,
     event.taskId,
     isTaskDeadline,
-    setDetailEvent,
+    isGeneratedFocusSession,
+    close,
+    dismissFocusSession,
     deleteEventMutation,
     deleteTaskMutation,
   ]);
@@ -178,71 +222,86 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
   const complete = useCallback(async () => {
     if (!event.taskId) return;
     setError(null);
-    setDetailEvent(null);
+    close();
     try {
       await completeTaskMutation.mutateAsync(event.taskId);
     } catch {
       setError("couldn't complete task");
     }
-  }, [completeTaskMutation, event.taskId, setDetailEvent]);
+  }, [completeTaskMutation, event.taskId, close]);
 
   return (
-    <form onSubmit={submit} className={workspacePageStyles.formGroup}>
-      <input
-        type="text"
-        value={summary}
-        onChange={(e) => setSummary(e.target.value)}
-        className={`w-full ${workspacePageStyles.inlineInput}`}
-        autoFocus
-        readOnly={isReadOnly}
-      />
-      {isTaskDeadline && (
-        <p className={workspacePageStyles.cardBodyText}>task deadline</p>
-      )}
-      {event.type === "plannedTask" && (
-        <p className={workspacePageStyles.cardBodyText}>scheduled task</p>
-      )}
-      {isGoogleEvent && (
-        <p className={workspacePageStyles.cardBodyText}>
-          google calendar event
-        </p>
-      )}
-      <input
-        type="date"
-        value={dateStr}
-        onChange={(e) => setDateStr(e.target.value)}
-        className={`w-full ${workspacePageStyles.inlineInputSmall}`}
-        readOnly={isReadOnly}
-      />
-      {!event.allDay && (
-        <div className={workspacePageStyles.timeInputRow}>
-          <input
-            type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            className={workspacePageStyles.inlineInputSmall}
-            readOnly={isReadOnly}
-          />
-          <span className={workspacePageStyles.cardBodyText}>→</span>
-          <input
-            type="time"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            className={workspacePageStyles.inlineInputSmall}
-            readOnly={isReadOnly}
-          />
-        </div>
-      )}
-      <input
-        type="text"
-        value={tag}
-        onChange={(e) => setTag(e.target.value)}
-        placeholder="tag"
-        className={`w-full ${workspacePageStyles.inlineInput}`}
-        readOnly={isReadOnly}
-      />
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 space-y-2 overflow-y-auto pb-4">
+        <input
+          type="text"
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          className={`w-full ${workspacePageStyles.inlineInput}`}
+          autoFocus
+          readOnly={isReadOnly}
+        />
+        {isTaskDeadline && (
+          <p className={workspacePageStyles.cardBodyText}>task deadline</p>
+        )}
+        {event.type === "plannedTask" && (
+          <p className={workspacePageStyles.cardBodyText}>scheduled task</p>
+        )}
+        {isGoogleEvent && (
+          <p className={workspacePageStyles.cardBodyText}>
+            google calendar event
+          </p>
+        )}
+        <input
+          type="date"
+          value={dateStr}
+          onChange={(e) => setDateStr(e.target.value)}
+          className={`w-full ${workspacePageStyles.inlineInputSmall}`}
+          readOnly={isReadOnly}
+        />
+        {!event.allDay && (
+          <div className={workspacePageStyles.timeInputRow}>
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className={workspacePageStyles.inlineInputSmall}
+              readOnly={isReadOnly}
+            />
+            <span className={workspacePageStyles.cardBodyText}>→</span>
+            <input
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              className={workspacePageStyles.inlineInputSmall}
+              readOnly={isReadOnly}
+            />
+          </div>
+        )}
+        <input
+          type="text"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="location"
+          className={`w-full ${workspacePageStyles.inlineInput}`}
+          readOnly={isReadOnly}
+        />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="description"
+          className={`min-h-24 w-full resize-none ${workspacePageStyles.inlineInput}`}
+          readOnly={isReadOnly}
+        />
+        <TagSelect
+          value={tag}
+          onChange={setTag}
+          readOnly={isReadOnly}
+          options={tagOptions}
+        />
+      </div>
       {error && <p className={workspacePageStyles.errorText}>{error}</p>}
-      <div className={workspacePageStyles.formActions}>
+      <DialogFooter className={workspaceModalFooterClass}>
         {canDelete && (
           <button
             type="button"
@@ -256,7 +315,7 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
           >
             {deleteEventMutation.isPending || deleteTaskMutation.isPending
               ? "..."
-              : "remove"}
+              : "delete"}
           </button>
         )}
         {canComplete && (
@@ -271,7 +330,7 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
         )}
         <button
           type="button"
-          onClick={() => setDetailEvent(null)}
+          onClick={close}
           className={workspacePageStyles.modalButton}
         >
           cancel
@@ -285,12 +344,16 @@ function EventDetailForm({ event }: { event: CalendarEvent }) {
             {updateEventMutation.isPending ? "..." : "save"}
           </button>
         )}
-      </div>
+      </DialogFooter>
     </form>
   );
 }
 
-export function EventDetailDialog() {
+export function EventDetailDialog({
+  tagOptions = [],
+}: {
+  tagOptions?: string[];
+}) {
   const { detailEvent: event, setDetailEvent } = useLifeStore();
   const lastEventRef = useRef<CalendarEvent | null>(null);
   if (event) lastEventRef.current = event;
@@ -307,7 +370,11 @@ export function EventDetailDialog() {
         </DialogTitle>
       </DialogHeader>
       {displayEvent && (
-        <EventDetailForm key={displayEvent.id} event={displayEvent} />
+        <EventDetailForm
+          key={displayEvent.id}
+          event={displayEvent}
+          tagOptions={tagOptions}
+        />
       )}
     </WorkspaceDialog>
   );

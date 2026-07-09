@@ -15,6 +15,30 @@ export function toWeekKey(date: Date) {
   return toDateString(getWeekStart(date));
 }
 
+const WEEKDAY_LABELS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+export type WeekHeaderDay = {
+  dateKey: string;
+  weekday: string;
+  dayOfMonth: number;
+};
+
+// Week-view column-header days for the week containing `selectedDate` (Sunday-start).
+// Labels come from real dates so `dayOfMonth` reflects the calendar; deriving them
+// from the weekday column keys ("sun", ...) reported a day-of-month of 0.
+export function weekHeaderDays(selectedDate: Date): WeekHeaderDay[] {
+  const weekStart = getWeekStart(selectedDate);
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(weekStart);
+    date.setDate(date.getDate() + i);
+    return {
+      dateKey: toDateString(date),
+      weekday: WEEKDAY_LABELS[date.getDay()],
+      dayOfMonth: date.getDate(),
+    };
+  });
+}
+
 export function toMonthKey(date: Date) {
   return `${date.getFullYear()}-${date.getMonth()}`;
 }

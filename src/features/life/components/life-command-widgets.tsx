@@ -20,7 +20,10 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  workspaceModalFooterClass,
+} from "@/components/layout/workspace-dialog";
 import { EmptyTaskText } from "@/features/life/components/task-row";
 import { useInspirationStore } from "@/features/life/stores/inspiration-store";
 import { useMountEffect } from "@/hooks/use-mount-effect";
@@ -52,12 +55,6 @@ function scheduledMinutes(events: CalendarEvent[]) {
         total + Math.max(0, event.endMinute - event.startMinute),
       0,
     );
-}
-
-function countConflicts(events: CalendarEvent[]) {
-  return events.filter(
-    (event) => event.conflictState && event.conflictState !== "none",
-  ).length;
 }
 
 function countOpenFocusBlocks(events: CalendarEvent[]) {
@@ -177,9 +174,7 @@ export function TodayWorkloadPanel({ snapshot }: { snapshot: LifeSnapshot }) {
     (task) => task.dueAt !== null && isWithinNextWeek(task.dueAt),
   ).length;
   const urgentOpen = snapshot.queue.filter((task) => task.score >= 3).length;
-  const conflicts = countConflicts(snapshot.weekCalendarEvents);
-  const pressureScore =
-    overdue * 3 + dueToday * 2 + dueThisWeek + urgentOpen + conflicts;
+  const pressureScore = overdue * 3 + dueToday * 2 + dueThisWeek + urgentOpen;
   const pressure = pressureTone(pressureScore);
   const loadPercent = Math.round(load * 100);
   const pressurePercent = Math.min(100, pressureScore * 7);
@@ -602,7 +597,7 @@ export function InspirationPanel() {
                       type="button"
                       onClick={() => removeImageUrl(row.id)}
                       className={lifeStyles.inlineIconButton}
-                      aria-label="Remove image URL"
+                      aria-label="Delete image URL"
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -611,7 +606,7 @@ export function InspirationPanel() {
               )}
             </div>
           </div>
-          <DialogFooter className="border-t border-border pt-3">
+          <DialogFooter className={workspaceModalFooterClass}>
             {config && (
               <button
                 type="button"
@@ -621,7 +616,7 @@ export function InspirationPanel() {
                 }}
                 className={workspacePageStyles.modalDangerButton}
               >
-                remove
+                delete
               </button>
             )}
             <button
