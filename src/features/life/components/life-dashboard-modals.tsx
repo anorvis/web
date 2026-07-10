@@ -3,13 +3,16 @@
 import { DialogFooter } from "@anorvis/ui/dialog";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { type Dispatch, type SetStateAction, useState } from "react";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceDialog,
+  WorkspaceModalFrame,
+} from "@/components/layout/workspace-dialog";
 import { todoPriorityClass } from "@/features/life/components/life-dashboard-calculations";
 import * as LifeUi from "@/features/life/components/life-dashboard-ui";
 import { CreateTaskForm } from "@/features/life/components/priority-queue";
 import { TaskEditForm } from "@/features/life/components/task-edit-dialog";
 import { formatDateTime } from "@/lib/life-intelligence/derive";
-import type { Tag } from "@/lib/life-intelligence/model";
+import type { Session, Tag } from "@/lib/life-intelligence/model";
 import type { LifePriorityTask } from "@/types/workspace";
 
 const TODOS_PAGE_SIZE = 7;
@@ -61,7 +64,7 @@ export function TodoDialog({
       onOpenChange={onOpenChange}
       className={LifeUi.modalClass}
     >
-      <LifeUi.ModalFrame
+      <WorkspaceModalFrame
         title={
           view === "create"
             ? "add todo"
@@ -74,10 +77,19 @@ export function TodoDialog({
         <div className="flex min-h-0 flex-1 flex-col space-y-3 pt-4 pb-0">
           {view === "list" && (
             <>
-              <p className={workspacePageStyles.cardBodyText}>
-                {todos.length} open · {periodTodosCount} due in selected{" "}
-                {calendarMode}
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className={workspacePageStyles.cardBodyText}>
+                  {todos.length} open · {periodTodosCount} due in selected{" "}
+                  {calendarMode}
+                </p>
+                <button
+                  type="button"
+                  className={workspacePageStyles.modalButton}
+                  onClick={() => onViewChange("create")}
+                >
+                  create todo
+                </button>
+              </div>
               <div className="space-y-1.5">
                 {todos.length === 0 ? (
                   <p className={workspacePageStyles.cardBodyText}>
@@ -186,7 +198,7 @@ export function TodoDialog({
             />
           )}
         </div>
-      </LifeUi.ModalFrame>
+      </WorkspaceModalFrame>
     </WorkspaceDialog>
   );
 }
@@ -197,15 +209,15 @@ export function TagsDialog({
   tags,
   selectedTagIds,
   setSelectedTagIds,
-  customTags,
-  setCustomTags,
-  setHiddenTagIds,
   draftTag,
   setDraftTag,
   addTag,
   tagEdit,
   setTagEdit,
   saveTagEdit,
+  onRemoveSelected,
+  busy,
+  error,
   onFilter,
 }: {
   open: boolean;
@@ -213,9 +225,6 @@ export function TagsDialog({
   tags: Tag[];
   selectedTagIds: string[];
   setSelectedTagIds: Dispatch<SetStateAction<string[]>>;
-  customTags: Tag[];
-  setCustomTags: Dispatch<SetStateAction<Tag[]>>;
-  setHiddenTagIds: Dispatch<SetStateAction<Set<string>>>;
   draftTag: string;
   setDraftTag: (value: string) => void;
   addTag: () => void;
@@ -224,15 +233,22 @@ export function TagsDialog({
     SetStateAction<{ id: string; name: string; color: string } | null>
   >;
   saveTagEdit: () => void;
+  onRemoveSelected: () => void;
+  busy: boolean;
+  error: string | null;
   onFilter: () => void;
 }) {
+  const hasRemovableSelection = selectedTagIds.some(
+    (id) => !tags.find((tag) => tag.id === id)?.system,
+  );
+
   return (
     <WorkspaceDialog
       open={open}
       onOpenChange={onOpenChange}
       className={LifeUi.modalClass}
     >
-      <LifeUi.ModalFrame
+      <WorkspaceModalFrame
         title="tags"
         description="Manage available tags, edit them inline, and choose calendar filters. Applying filters closes this modal."
       >
@@ -250,7 +266,11 @@ export function TagsDialog({
               onChange={(event) => setDraftTag(event.target.value)}
               placeholder="new tag"
             />
-            <button type="submit" className={workspacePageStyles.modalButton}>
+            <button
+              type="submit"
+              className={workspacePageStyles.modalButton}
+              disabled={busy}
+            >
               create
             </button>
           </form>
@@ -295,6 +315,7 @@ export function TagsDialog({
                       <input
                         className={`h-8 min-w-0 flex-1 ${workspacePageStyles.inlineInput}`}
                         value={tagEdit.name}
+                        disabled={tag.system}
                         onChange={(event) =>
                           setTagEdit((current) =>
                             current
@@ -303,6 +324,11 @@ export function TagsDialog({
                           )
                         }
                         aria-label={`edit ${tag.name} name`}
+                        title={
+                          tag.system
+                            ? "automatic tag names cannot be changed"
+                            : undefined
+                        }
                       />
                       <input
                         type="color"
@@ -319,8 +345,9 @@ export function TagsDialog({
                       />
                       <button
                         type="button"
-                        className="shrink-0 text-[0.55rem] uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground"
+                        className="shrink-0 text-[0.55rem] uppercase tracking-[0.16em] text-muted-foreground hover:text-foreground disabled:opacity-50"
                         onClick={saveTagEdit}
+                        disabled={busy}
                       >
                         save
                       </button>
@@ -353,6 +380,11 @@ export function TagsDialog({
                       >
                         {tag.name}
                       </button>
+                      {tag.system ? (
+                        <span className="shrink-0 text-[0.5rem] uppercase tracking-[0.14em] text-muted-foreground">
+                          auto
+                        </span>
+                      ) : null}
                       <button
                         type="button"
                         className="shrink-0 text-[0.55rem] uppercase tracking-[0.16em] text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
@@ -373,6 +405,7 @@ export function TagsDialog({
               );
             })}
           </div>
+          {error && <p className={workspacePageStyles.errorText}>{error}</p>}
           <DialogFooter className={LifeUi.modalFooterClass}>
             <button
               type="button"
@@ -384,22 +417,8 @@ export function TagsDialog({
             <button
               type="button"
               className={workspacePageStyles.modalDangerButton}
-              disabled={selectedTagIds.length === 0}
-              onClick={() => {
-                const selectedIds = new Set(selectedTagIds);
-                setCustomTags((current) =>
-                  current.filter((entry) => !selectedIds.has(entry.id)),
-                );
-                setHiddenTagIds((current) => {
-                  const next = new Set(current);
-                  for (const id of selectedIds) {
-                    if (!customTags.some((entry) => entry.id === id))
-                      next.add(id);
-                  }
-                  return next;
-                });
-                setSelectedTagIds([]);
-              }}
+              disabled={!hasRemovableSelection || busy}
+              onClick={onRemoveSelected}
             >
               remove selected
             </button>
@@ -412,7 +431,64 @@ export function TagsDialog({
             </button>
           </DialogFooter>
         </div>
-      </LifeUi.ModalFrame>
+      </WorkspaceModalFrame>
     </WorkspaceDialog>
+  );
+}
+
+export function FocusSessionList({
+  sessions,
+  totalMinutes,
+  onCreate,
+  onEdit,
+}: {
+  sessions: Session[];
+  totalMinutes: number;
+  onCreate: () => void;
+  onEdit: (session: Session) => void;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <p className={workspacePageStyles.cardBodyText}>
+          {sessions.length} sessions · {totalMinutes}m
+        </p>
+        <button
+          className={workspacePageStyles.modalButton}
+          type="button"
+          onClick={onCreate}
+        >
+          new session
+        </button>
+      </div>
+      {sessions.length === 0 ? (
+        <p className={workspacePageStyles.cardBodyText}>
+          no focus sessions in this time frame
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              onClick={() => onEdit(session)}
+              className="w-full border border-border p-3 text-left hover:border-foreground"
+            >
+              <p className="text-sm text-foreground">{session.title}</p>
+              <p className="mt-1 text-[0.62rem] uppercase tracking-[0.16em] text-muted-foreground">
+                {session.startAt
+                  ? formatDateTime(session.startAt)
+                  : "unscheduled"}
+              </p>
+              {session.notes && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {session.notes}
+                </p>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

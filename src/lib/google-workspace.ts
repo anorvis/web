@@ -3,6 +3,7 @@ import "server-only";
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
 import type { CalendarEvent } from "@/types/workspace";
 
+const GOOGLE_CALENDAR_TAG = "google calendar";
 export type GoogleWorkspaceStatus = {
   connected: boolean;
   hasClientConfig: boolean;
@@ -96,6 +97,7 @@ function toCalendarEvent(event: GoogleCalendarApiEvent): CalendarEvent[] {
         source: "google-calendar",
         calendarId: event.calendarId ?? null,
         readOnly: true,
+        tag: GOOGLE_CALENDAR_TAG,
       });
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -122,6 +124,7 @@ function toCalendarEvent(event: GoogleCalendarApiEvent): CalendarEvent[] {
       source: "google-calendar",
       calendarId: event.calendarId ?? null,
       readOnly: true,
+      tag: GOOGLE_CALENDAR_TAG,
     },
   ];
 }

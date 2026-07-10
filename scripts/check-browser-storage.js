@@ -12,6 +12,7 @@ const allowedFiles = new Set([
   "features/health/stores/health-store.ts",
   "features/life/stores/inspiration-store.ts",
   "features/overview/components/domain-cards-row.tsx",
+  "lib/stores/finance-preferences.ts",
   "lib/query/persistence.ts",
   "lib/local-backend-client.ts",
 ]);

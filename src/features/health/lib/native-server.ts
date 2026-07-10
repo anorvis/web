@@ -24,7 +24,7 @@ export async function getNativeHealthDashboard(): Promise<NativeHealthDashboard>
       todayMeals: [],
       recentMeals: [],
       recentWorkouts: [],
-      latestCheckin: null,
+      measurementHistory: [],
     };
   }
 }

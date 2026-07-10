@@ -8,7 +8,7 @@ import type {
   WorkspaceSourceSettings,
 } from "@/features/integrations/components/card";
 
-type IntegrationSettingsState = {
+export type IntegrationSettingsState = {
   integration: { id: string };
   saving: boolean;
   settings: WorkspaceSourceSettings | null;

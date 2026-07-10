@@ -116,12 +116,8 @@ export function MealDialog() {
                   }}
                 >
                   <option value="all">all databases</option>
-                  <option value="common">Common foods</option>
                   <option value="recipe">saved recipes</option>
                   <option value="openfoodfacts">Open Food Facts</option>
-                  <option value="fatsecret">FatSecret</option>
-                  <option value="nutritionix">Nutritionix</option>
-                  <option value="usda">USDA FoodData Central</option>
                 </select>
               </label>
               <div className="flex gap-2">

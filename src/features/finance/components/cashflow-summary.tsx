@@ -1,7 +1,7 @@
 "use client";
 
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { convertAmount } from "@/features/finance/lib/currency";
+import { formatConverted } from "@/features/finance/lib/currency";
 import type {
   Currency,
   FxRates,
@@ -31,8 +31,8 @@ export function CashflowSummary({
   rates,
   originalCurrency,
 }: CashflowSummaryProps) {
-  const convert = (amount: number) =>
-    convertAmount(amount, originalCurrency, currency, rates);
+  const display = (amount: number) =>
+    formatConverted(amount, originalCurrency, currency, rates, fmt);
 
   const totalIncome = summaries.reduce((s, m) => s + m.income, 0);
   const totalExpenses = summaries.reduce((s, m) => s + m.expenses, 0);
@@ -47,11 +47,11 @@ export function CashflowSummary({
       : "—";
 
   const metrics = [
-    { label: "total income", value: fmt(convert(totalIncome), currency) },
-    { label: "total expenses", value: fmt(convert(totalExpenses), currency) },
+    { label: "total income", value: display(totalIncome) },
+    { label: "total expenses", value: display(totalExpenses) },
     {
       label: "net cashflow",
-      value: fmt(convert(totalNet), currency),
+      value: display(totalNet),
     },
     { label: "savings rate", value: `${avgSavingsRate.toFixed(1)}%` },
     {
@@ -77,8 +77,7 @@ export function CashflowSummary({
             <div key={m.month} className={workspacePageStyles.listRow}>
               <span className={workspacePageStyles.listLabel}>{m.month}</span>
               <span className={workspacePageStyles.listValue}>
-                {fmt(convert(m.income), currency)} in ·{" "}
-                {fmt(convert(m.expenses), currency)} out ·{" "}
+                {display(m.income)} in · {display(m.expenses)} out ·{" "}
                 {m.savingsRate >= 0 ? "+" : ""}
                 {(m.savingsRate * 100).toFixed(0)}%
               </span>

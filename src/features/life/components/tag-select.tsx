@@ -18,8 +18,6 @@ type TagSelectProps = {
   options?: string[];
 };
 
-const fallbackTags = ["work", "personal", "health", "school", "finance"];
-
 function normalizeOption(value: string) {
   return value.trim();
 }
@@ -33,11 +31,7 @@ export function TagSelect({
 }: TagSelectProps) {
   const selected = normalizeOption(value);
   const selectOptions = Array.from(
-    new Set(
-      [...options, ...fallbackTags, selected].filter(
-        (tag): tag is string => !!tag,
-      ),
-    ),
+    new Set([...options, selected].filter((tag): tag is string => !!tag)),
   ).sort((a, b) => a.localeCompare(b));
 
   return (

@@ -14,7 +14,6 @@
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
     "test": "playwright test",
-    "test:e2e:prod": "VERCEL_ENV=production playwright test e2e/prod-landing.spec.ts",
     "test:unit": "vitest run"
   },
   "dependencies": {

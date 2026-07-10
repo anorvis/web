@@ -1,284 +1,487 @@
 "use client";
 
-import { Button } from "@anorvis/ui/button";
-import { Input } from "@anorvis/ui/input";
 import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { WorkspaceMetricButton } from "@/components/layout/workspace";
 import {
   AddSourceButton,
-  Metric,
   RecordRow,
   Section,
 } from "@/components/life-intelligence/record-ui";
 import {
   fetchHealthDashboard,
+  fetchHevyExerciseTemplates,
+  fetchHevyRoutines,
+  fetchHevySettings,
+  type HevyRoutine,
   postHealthForm,
-  saveHevySettings,
-  syncHevy,
+  saveHevyRoutine,
 } from "@/features/health/api/health";
+import { fetchRecipes } from "@/features/health/api/recipes";
+import {
+  EmptyState,
+  HealthDialog,
+  mealMacroLine,
+  nextPageIndex,
+  previousPageIndex,
+  safePageIndex,
+  selectPagedItem,
+  WorkoutExerciseHistory,
+  WorkoutFlipbook,
+} from "@/features/health/components/health-dashboard-panels";
+import { HealthTrendsCard } from "@/features/health/components/health-trends";
+import { MeasurementsModal } from "@/features/health/components/measurements-modal";
+import { NewMealPanel } from "@/features/health/components/new-meal";
+import { RecipesModal } from "@/features/health/components/recipe-book";
+import { RoutineFlipbook } from "@/features/health/components/routine-book";
+import {
+  EXERCISE_HISTORY_PAGE_SIZE,
+  exerciseHistoryRows,
+} from "@/features/health/lib/exercise-history";
+import {
+  bmi,
+  bmiStatus,
+  latestMeasurementValue,
+} from "@/features/health/lib/health-metrics";
+import { hevyRoutineSummaries } from "@/features/health/lib/summaries";
+import type { NativeMacroProfile } from "@/features/health/types/native-health";
+import type { FoodSearchResult } from "@/features/health/utils/forms";
 import { usePersistedQuery } from "@/hooks/use-persisted-query";
 import { healthFromDashboard } from "@/lib/life-intelligence/adapters";
-import {
-  formatDateTime,
-  macroTotals,
-  muscleCoverage,
-} from "@/lib/life-intelligence/derive";
+import { formatDateTime } from "@/lib/life-intelligence/derive";
 import { queryKeys } from "@/lib/query/keys";
 
-const inputClass =
-  "h-7 rounded-none px-2 text-[0.6rem] placeholder:text-[0.6rem]";
-const buttonClass =
-  "h-7 rounded-none px-2 text-[0.6rem] hover:border-foreground hover:bg-foreground hover:text-background";
-const fileInputId = "meal-photo-input";
+const stableCardClass = "flex h-[28rem] min-h-0 flex-col overflow-hidden";
+
+type HealthModal = "workouts" | "meals" | "measurements" | "recipes" | null;
+type WorkoutView = "list" | { exercise: string };
 
 export function HealthDashboard() {
   const queryClient = useQueryClient();
-  const [photoName, setPhotoName] = useState<string | null>(null);
   const [mealStatus, setMealStatus] = useState<string | null>(null);
-  const [hevyKey, setHevyKey] = useState("");
+  const [activeModal, setActiveModal] = useState<HealthModal>(null);
+  const [mealsView, setMealsView] = useState<"history" | "new">("history");
+  const [workoutIndex, setWorkoutIndex] = useState(0);
+  const [routineIndex, setRoutineIndex] = useState(0);
+  const [exerciseHistoryIndex, setExerciseHistoryIndex] = useState(0);
+  const [workoutView, setWorkoutView] = useState<WorkoutView>("list");
   const dashboardQuery = usePersistedQuery({
     queryKey: queryKeys.health.dashboard(),
     queryFn: fetchHealthDashboard,
   });
-  const saveHevyMutation = useMutation({
-    mutationFn: () => saveHevySettings(hevyKey),
+  const recipesQuery = usePersistedQuery({
+    queryKey: queryKeys.health.recipes(),
+    queryFn: fetchRecipes,
   });
-  const syncHevyMutation = useMutation({
-    mutationFn: syncHevy,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.health.dashboard() }),
+  const sourceQuery = usePersistedQuery({
+    queryKey: ["health", "sources"],
+    queryFn: fetchHevySettings,
+  });
+  const routineQuery = usePersistedQuery({
+    queryKey: ["health", "hevy-routines"],
+    queryFn: fetchHevyRoutines,
+  });
+  const routineTemplateQuery = usePersistedQuery({
+    queryKey: ["health", "hevy-exercise-templates"],
+    queryFn: fetchHevyExerciseTemplates,
+    enabled:
+      Boolean(sourceQuery.hydratedData?.connected) ||
+      Boolean(sourceQuery.hydratedData?.hasApiKey),
+  });
+  const routineMutation = useMutation({
+    mutationFn: saveHevyRoutine,
+    onSuccess: (routine) => {
+      queryClient.setQueryData<{ routines: HevyRoutine[] }>(
+        ["health", "hevy-routines"],
+        (current) => ({
+          routines: (current?.routines ?? []).map((item) =>
+            item.id === routine.id ? routine : item,
+          ),
+        }),
+      );
+      queryClient.invalidateQueries({ queryKey: ["health", "hevy-routines"] });
+    },
   });
   const mealMutation = useMutation({
     mutationFn: (formData: FormData) =>
       postHealthForm("/api/health/meals", formData),
     onSuccess: () => {
       setMealStatus("meal saved");
+      setMealsView("history");
       queryClient.invalidateQueries({ queryKey: queryKeys.health.dashboard() });
     },
     onError: () => setMealStatus("meal save failed"),
   });
 
   const health = healthFromDashboard(dashboardQuery.hydratedData);
-  const totals = macroTotals(health);
-  const coverage = muscleCoverage(health);
-  const loading = dashboardQuery.hydrationLoading;
+  const macroProfile = (dashboardQuery.hydratedData?.macroProfile ??
+    null) as NativeMacroProfile | null;
+  const recipes = recipesQuery.hydratedData?.recipes ?? [];
+  const measurementHistory =
+    dashboardQuery.hydratedData?.measurementHistory ?? [];
+  const latestWeight = latestMeasurementValue(measurementHistory, "weightKg");
+  const bmiProfile =
+    macroProfile && latestWeight !== null
+      ? { ...macroProfile, weightKg: latestWeight }
+      : macroProfile;
+  const bmiSummary = bmiStatus(bmiProfile);
+  const bmiValue = bmiProfile
+    ? bmi(bmiProfile.weightKg, bmiProfile.heightCm)
+    : null;
+  const measurementCount = measurementHistory.length;
+  const selectedWorkout = selectPagedItem(health.workouts, workoutIndex);
+  const routines = useMemo(
+    () => hevyRoutineSummaries(routineQuery.hydratedData?.routines ?? []),
+    [routineQuery.hydratedData],
+  );
+  const selectedRoutine = selectPagedItem(routines, routineIndex);
+  const selectedHevyRoutine =
+    selectedRoutine?.source === "hevy"
+      ? (routineQuery.hydratedData?.routines.find(
+          (routine) => routine.id === selectedRoutine.id,
+        ) ?? null)
+      : null;
+  const selectedExerciseTitle =
+    typeof workoutView === "object" ? workoutView.exercise : null;
+  const selectedExerciseHistoryRows = selectedExerciseTitle
+    ? exerciseHistoryRows(health.workouts, selectedExerciseTitle)
+    : [];
+  const selectedExerciseHistoryPageCount = Math.ceil(
+    selectedExerciseHistoryRows.length / EXERCISE_HISTORY_PAGE_SIZE,
+  );
+  const connectedSources = [
+    "local health",
+    ...(sourceQuery.hydratedData?.connected ||
+    sourceQuery.hydratedData?.hasApiKey
+      ? ["hevy"]
+      : []),
+  ];
+
+  const openMealModal = (view: "history" | "new") => {
+    setMealsView(view);
+    setActiveModal("meals");
+  };
+  const openExerciseHistory = (exercise: string) => {
+    setExerciseHistoryIndex(0);
+    setWorkoutView({ exercise });
+    setActiveModal("workouts");
+  };
+  const logFood = (result: FoodSearchResult) => {
+    const formData = new FormData();
+    formData.set("name", result.name);
+    formData.set("mealType", "meal");
+    formData.set("loggedAt", new Date().toISOString());
+    formData.set("calories", String(result.calories));
+    formData.set("proteinGrams", String(result.proteinGrams));
+    formData.set("carbsGrams", String(result.carbsGrams));
+    formData.set("fatGrams", String(result.fatGrams));
+    formData.set("notes", `${result.provider}:${result.id}`);
+    mealMutation.mutate(formData);
+  };
 
   return (
     <div className="space-y-4">
+      <section className="grid gap-4 xl:grid-cols-4">
+        <WorkspaceMetricButton
+          label="measurements"
+          value={bmiValue === null ? `${measurementCount}` : `${bmiValue}`}
+          note={
+            bmiSummary
+              ? `BMI ${bmiValue} · ${bmiSummary.category}`
+              : bmiValue === null
+                ? `${measurementCount} body measurement${measurementCount === 1 ? "" : "s"}`
+                : `BMI ${bmiValue} · adult range colour unavailable`
+          }
+          valueStyle={bmiSummary ? { color: bmiSummary.tone } : undefined}
+          noteStyle={bmiSummary ? { color: bmiSummary.tone } : undefined}
+          onClick={() => setActiveModal("measurements")}
+        />
+        <WorkspaceMetricButton
+          label="workouts"
+          value={`${health.workouts.length}`}
+          note="click for paginated training log"
+          onClick={() => {
+            setWorkoutView("list");
+            setActiveModal("workouts");
+          }}
+        />
+        <WorkspaceMetricButton
+          label="meals"
+          value={`${health.meals.length}`}
+          note="consumed meal history"
+          onClick={() => openMealModal("history")}
+          action={
+            <button
+              type="button"
+              aria-label="add meal"
+              onClick={(event) => {
+                event.stopPropagation();
+                openMealModal("new");
+              }}
+              className="grid size-8 place-items-center border border-border text-muted-foreground hover:border-foreground hover:text-foreground"
+            >
+              +
+            </button>
+          }
+        />
+        <WorkspaceMetricButton
+          label="recipes"
+          value={`${recipes.length}`}
+          note="saved recipes + favourites"
+          onClick={() => setActiveModal("recipes")}
+        />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <Section label="training" title="routines">
+          <div className={stableCardClass}>
+            {routineQuery.hydrationLoading ? (
+              <Skeleton className="h-full rounded-none" />
+            ) : routineQuery.isError ? (
+              <EmptyState
+                title="Hevy routines could not be loaded."
+                body="Check that anorvis-os is current and your saved Hevy API key is still valid."
+                action={
+                  <button
+                    type="button"
+                    className={workspacePageStyles.modalButton}
+                    onClick={() => void routineQuery.refetch()}
+                  >
+                    retry
+                  </button>
+                }
+              />
+            ) : selectedRoutine ? (
+              <RoutineFlipbook
+                key={selectedRoutine.id}
+                routine={selectedRoutine}
+                editableRoutine={selectedHevyRoutine}
+                templates={
+                  routineTemplateQuery.hydratedData?.exerciseTemplates ?? []
+                }
+                saving={routineMutation.isPending}
+                saveError={
+                  routineMutation.isError ? "routine save failed" : null
+                }
+                index={safePageIndex(routineIndex, routines.length)}
+                total={routines.length}
+                onSave={(routine, onSaved) =>
+                  routineMutation.mutate(routine, { onSuccess: onSaved })
+                }
+                onPrevious={() =>
+                  setRoutineIndex((current) =>
+                    previousPageIndex(current, routines.length),
+                  )
+                }
+                onNext={() =>
+                  setRoutineIndex((current) =>
+                    nextPageIndex(current, routines.length),
+                  )
+                }
+                onSelectExercise={openExerciseHistory}
+              />
+            ) : (
+              <EmptyState
+                title="No Hevy routines found."
+                body="Add a routine in Hevy, then refresh this card."
+                action={
+                  <button
+                    type="button"
+                    className={workspacePageStyles.modalButton}
+                    onClick={() => void routineQuery.refetch()}
+                  >
+                    refresh
+                  </button>
+                }
+              />
+            )}
+          </div>
+        </Section>
+
+        <Section label="trends" title="health graph">
+          <div className={stableCardClass}>
+            <HealthTrendsCard
+              dashboard={dashboardQuery.hydratedData}
+              loading={dashboardQuery.hydrationLoading}
+              isError={dashboardQuery.isError}
+              onRetry={() => void dashboardQuery.refetch()}
+            />
+          </div>
+        </Section>
+      </section>
+
       <Section
         label="sources"
         title="health setup"
         headerExtra={<AddSourceButton domain="health" />}
       >
         <p className={workspacePageStyles.cardBodyText}>
-          Connect workout and nutrition sources here. Metrics below render only
-          from saved workouts, meals, and macro targets.
+          Connect workout and nutrition sources here. Metrics above render only
+          from saved workouts, meals, measurements, and imported source data.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[0.58rem] uppercase tracking-[0.18em] text-muted-foreground">
+            sources
+          </span>
+          {connectedSources.map((source) => (
+            <span
+              key={source}
+              className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[0.58rem] uppercase tracking-[0.16em] text-foreground"
+            >
+              <span className="text-emerald-500">●</span>
+              {source} connected
+            </span>
+          ))}
+        </div>
       </Section>
 
-      <section className="grid gap-4 xl:grid-cols-4">
-        <Metric
-          label="workouts"
-          value={`${health.workouts.length}`}
-          note="from Hevy/native health source"
-        />
-        <Metric
-          label="meals"
-          value={`${health.meals.length}`}
-          note="manual or photo-assisted entries"
-        />
-        <Metric
-          label="calories"
-          value={`${totals.calories}`}
-          note={`${totals.protein}g protein`}
-        />
-        <Metric
-          label="macro profile"
-          value={dashboardQuery.data?.macroProfile ? "loaded" : "---"}
-          note="from local anorvis-os"
-        />
-      </section>
+      <HealthDialog
+        open={activeModal === "workouts"}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveModal(null);
+          }
+        }}
+        title={selectedExerciseTitle ?? "workout log"}
+        description={
+          selectedExerciseTitle
+            ? "Logged sets for this exercise, paginated by row count."
+            : "One workout per page. Click an exercise to open its history."
+        }
+      >
+        {selectedExerciseTitle ? (
+          <WorkoutExerciseHistory
+            rows={selectedExerciseHistoryRows}
+            index={safePageIndex(
+              exerciseHistoryIndex,
+              selectedExerciseHistoryPageCount,
+            )}
+            total={selectedExerciseHistoryPageCount}
+            onPrevious={() =>
+              setExerciseHistoryIndex((current) =>
+                previousPageIndex(current, selectedExerciseHistoryPageCount),
+              )
+            }
+            onNext={() =>
+              setExerciseHistoryIndex((current) =>
+                nextPageIndex(current, selectedExerciseHistoryPageCount),
+              )
+            }
+            onBack={() => {
+              setExerciseHistoryIndex(0);
+              setWorkoutView("list");
+            }}
+          />
+        ) : selectedWorkout ? (
+          <WorkoutFlipbook
+            workout={selectedWorkout}
+            index={safePageIndex(workoutIndex, health.workouts.length)}
+            total={health.workouts.length}
+            onPrevious={() =>
+              setWorkoutIndex((current) =>
+                previousPageIndex(current, health.workouts.length),
+              )
+            }
+            onNext={() =>
+              setWorkoutIndex((current) =>
+                nextPageIndex(current, health.workouts.length),
+              )
+            }
+            onSelectExercise={openExerciseHistory}
+          />
+        ) : (
+          <EmptyState
+            title="No workouts yet."
+            body="Add a workout source to populate training records."
+          />
+        )}
+      </HealthDialog>
 
-      <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-        <Section label="training" title="training">
-          <div className="mb-4 grid items-center gap-2 md:grid-cols-[1fr_auto_auto]">
-            <Input
-              value={hevyKey}
-              onChange={(event) => setHevyKey(event.currentTarget.value)}
-              placeholder="hevy api key"
-              type="password"
-              className={inputClass}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              className={buttonClass}
-              onClick={() => saveHevyMutation.mutate()}
-              disabled={!hevyKey || saveHevyMutation.isPending}
-            >
-              save key
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className={buttonClass}
-              onClick={() => syncHevyMutation.mutate()}
-              disabled={syncHevyMutation.isPending}
-            >
-              sync
-            </Button>
-          </div>
-          {loading ? (
-            <Skeleton className="h-48 rounded-none" />
-          ) : health.workouts.length > 0 ? (
-            <div className="space-y-4">
+      <HealthDialog
+        open={activeModal === "meals"}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveModal(null);
+          }
+        }}
+        title={mealsView === "history" ? "meals" : "new meal"}
+        description={
+          mealsView === "history"
+            ? "Saved meal history. Press + meal to search foods or log manually."
+            : "Search foods or saved recipes, or enter a meal manually."
+        }
+      >
+        {mealsView === "history" ? (
+          <div className="flex min-h-full flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className={workspacePageStyles.cardBodyText}>
+                {health.meals.length} saved meals
+              </p>
+              <button
+                type="button"
+                className={workspacePageStyles.modalButton}
+                onClick={() => setMealsView("new")}
+              >
+                add a meal
+              </button>
+            </div>
+            {mealStatus ? (
+              <p
+                className={workspacePageStyles.cardBodyText}
+                aria-live="polite"
+              >
+                {mealStatus}
+              </p>
+            ) : null}
+            {health.meals.length > 0 ? (
               <div className="space-y-0">
-                {health.workouts.map((workout) => (
+                {health.meals.map((meal) => (
                   <RecordRow
-                    key={workout.id}
-                    label={formatDateTime(workout.startAt)}
-                    value={workout.title}
-                    meta={`${workout.exercises.length} exercises`}
+                    key={meal.id}
+                    label={formatDateTime(meal.time)}
+                    value={meal.title}
+                    meta={mealMacroLine(meal)}
                   />
                 ))}
               </div>
-              {coverage.length > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {coverage.map((item) => (
-                    <div key={item.muscle} className="border border-border p-3">
-                      <p className="text-[0.6rem] uppercase tracking-[0.16em] text-muted-foreground">
-                        {item.muscle}
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {item.sets} sets
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <EmptyState
-              title="No workouts yet."
-              body="Connect Hevy, then run sync. Workouts will be converted into Workout records and can later create life time blocks."
-            />
-          )}
-        </Section>
-
-        <Section label="food" title="food">
-          <form
-            className="space-y-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              mealMutation.mutate(new FormData(event.currentTarget));
-            }}
-          >
-            <Input
-              name="name"
-              placeholder="meal name"
-              required
-              className={inputClass}
-            />
-            <div className="grid items-center gap-2 sm:grid-cols-[auto_1fr]">
-              <label
-                htmlFor={fileInputId}
-                className={`${buttonClass} inline-flex cursor-pointer items-center justify-center border border-border`}
-              >
-                browse
-              </label>
-              <p className="truncate text-[0.6rem] text-muted-foreground">
-                {photoName ?? "no photo selected"}
-              </p>
-              <input
-                id={fileInputId}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(event) =>
-                  setPhotoName(event.currentTarget.files?.[0]?.name ?? null)
-                }
-              />
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              <Input
-                name="calories"
-                placeholder="kcal"
-                inputMode="numeric"
-                className={inputClass}
-              />
-              <Input
-                name="proteinGrams"
-                placeholder="protein"
-                inputMode="numeric"
-                className={inputClass}
-              />
-              <Input
-                name="carbsGrams"
-                placeholder="carbs"
-                inputMode="numeric"
-                className={inputClass}
-              />
-              <Input
-                name="fatGrams"
-                placeholder="fat"
-                inputMode="numeric"
-                className={inputClass}
-              />
-            </div>
-            <input type="hidden" name="mealType" value="meal" />
-            <input
-              type="hidden"
-              name="loggedAt"
-              value={new Date().toISOString()}
-            />
-            <Input
-              name="notes"
-              placeholder={photoName ? `photo selected: ${photoName}` : "notes"}
-              className={inputClass}
-            />
-            <Button
-              type="submit"
-              size="sm"
-              variant="outline"
-              className={buttonClass}
-              disabled={mealMutation.isPending}
-            >
-              {mealMutation.isPending ? "saving" : "save meal"}
-            </Button>
-            {mealStatus && (
-              <p className="text-xs text-muted-foreground">{mealStatus}</p>
-            )}
-          </form>
-          <div className="mt-4 space-y-0">
-            {health.meals.length > 0 ? (
-              health.meals.map((meal) => (
-                <RecordRow
-                  key={meal.id}
-                  label={formatDateTime(meal.time)}
-                  value={meal.title}
-                  meta={`${meal.macro?.calories ?? 0} kcal · ${meal.macro?.protein ?? 0}g protein`}
-                />
-              ))
             ) : (
               <EmptyState
                 title="No meals yet."
-                body="Upload a food image and enter/confirm macros to create a Meal record."
+                body="Use add a meal above to save your first food record."
               />
             )}
           </div>
-        </Section>
-      </section>
-    </div>
-  );
-}
+        ) : (
+          <NewMealPanel
+            onBack={() => setMealsView("history")}
+            onLogFood={logFood}
+            onSubmitMeal={(formData) => mealMutation.mutate(formData)}
+            isLogging={mealMutation.isPending}
+            logStatus={mealStatus}
+          />
+        )}
+      </HealthDialog>
 
-function EmptyState({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="border border-dashed border-border p-4">
-      <p className="text-xs text-foreground">{title}</p>
-      <p className={workspacePageStyles.cardBodyText}>{body}</p>
+      <MeasurementsModal
+        open={activeModal === "measurements"}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveModal(null);
+          }
+        }}
+        dashboard={dashboardQuery.hydratedData}
+      />
+
+      <RecipesModal
+        open={activeModal === "recipes"}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActiveModal(null);
+          }
+        }}
+      />
     </div>
   );
 }

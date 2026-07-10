@@ -1,7 +1,7 @@
 "use client";
 
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { convertAmount } from "@/features/finance/lib/currency";
+import { formatConverted } from "@/features/finance/lib/currency";
 import type {
   Currency,
   FxRates,
@@ -31,8 +31,8 @@ export function RecurringExpenses({
   rates,
   originalCurrency,
 }: RecurringExpensesProps) {
-  const convert = (amount: number) =>
-    convertAmount(amount, originalCurrency, currency, rates);
+  const display = (amount: number) =>
+    formatConverted(amount, originalCurrency, currency, rates, fmt);
 
   if (expenses.length === 0) {
     return (
@@ -49,7 +49,7 @@ export function RecurringExpenses({
       <div className="flex items-baseline justify-between">
         <p className={workspacePageStyles.metricLabel}>monthly commitment</p>
         <p className={workspacePageStyles.metricValue}>
-          {fmt(convert(totalMonthly), currency)}
+          {display(totalMonthly)}
         </p>
       </div>
 
@@ -68,7 +68,7 @@ export function RecurringExpenses({
               </span>
             </div>
             <span className={workspacePageStyles.listValue}>
-              {fmt(convert(e.monthlyCost), currency)}/mo
+              {display(e.monthlyCost)}/mo
             </span>
           </div>
         ))}

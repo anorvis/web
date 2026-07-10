@@ -27,7 +27,6 @@ export type WorkoutTemplate = {
   exercises: (typeof initialWorkoutExercise)[];
 };
 
-export const recipeStorageKey = "anorvis.health.recipes";
 export const workoutTemplateStorageKey = "anorvis.health.workoutTemplates";
 
 const UnknownArrayJsonSchema = Schema.parseJson(Schema.Array(Schema.Unknown));
@@ -74,19 +73,6 @@ export function createWorkoutSet() {
   };
 }
 
-export function readSavedRecipes(): FoodSearchResult[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const value = decodeUnknownResult(
-      UnknownArrayJsonSchema,
-      localStorage.getItem(recipeStorageKey) ?? "[]",
-    );
-    return value.ok ? (value.value as FoodSearchResult[]) : [];
-  } catch {
-    return [];
-  }
-}
-
 export function readWorkoutTemplates(): WorkoutTemplate[] {
   if (typeof window === "undefined") return [];
   try {
@@ -106,6 +92,14 @@ export function kgToLb(value: number): number {
 
 export function lbToKg(value: number): number {
   return value / 2.20462;
+}
+
+export function metersToFeet(value: number): number {
+  return value * 3.28084;
+}
+
+export function feetToMeters(value: number): number {
+  return value / 3.28084;
 }
 
 export function cmToIn(value: number): number {

@@ -3,12 +3,14 @@ import {
   ExerciseSetBodySchema,
   ExercisesJsonSchema,
 } from "@/features/health/api/schemas";
+import { bmrMifflinStJeor, tdee } from "@/features/health/lib/health-metrics";
 import type {
   DetailedWorkoutSummary,
   ExerciseStats,
   WorkoutSummary,
 } from "@/features/health/types/health";
 import type { NativeHealthDashboard } from "@/features/health/types/native-health";
+import type { FoodSearchResult } from "@/features/health/utils/forms";
 import { deleteJson, postJson, requestJson } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
 import { decodeUnknownResult } from "@/lib/effect/schema";
@@ -59,13 +61,9 @@ function macroProfileBodyFromForm(formData: FormData) {
   const sex = String(body.sex || "male");
   const activity = String(body.activityLevel || "moderate");
   const goal = String(body.goal || "maintain");
-  const bmr =
-    10 * weightKg + 6.25 * heightCm - 5 * age + (sex === "female" ? -161 : 5);
-  const multiplier =
-    { sedentary: 1.2, light: 1.375, moderate: 1.55, high: 1.725 }[activity] ??
-    1.55;
+  const bmr = bmrMifflinStJeor({ weightKg, heightCm, age, sex });
   const calculatedTargetCalories = Math.round(
-    bmr * multiplier + (goal === "gain" ? 250 : goal === "lose" ? -350 : 0),
+    tdee(bmr, activity) + (goal === "gain" ? 250 : goal === "lose" ? -350 : 0),
   );
   const calculatedProteinGrams = Math.round(
     weightKg * (goal === "gain" ? 2 : 1.8),
@@ -210,14 +208,17 @@ export function postHealthForm(path: string, formData: FormData) {
   );
 }
 
-export function searchFood(query: string, provider: string) {
+export function searchFood(
+  query: string,
+  provider: string,
+): Promise<{ results?: FoodSearchResult[] }> {
   const params = new URLSearchParams({ q: query, provider });
   const request = shouldUseBrowserLocalBackend()
-    ? requestBrowserLocalJson<{ results?: unknown[] }>(
+    ? requestBrowserLocalJson<{ results?: FoodSearchResult[] }>(
         `/v1/integrations/food/search?${params.toString()}`,
       )
     : runEffect(
-        requestJson<{ results?: unknown[] }>(
+        requestJson<{ results?: FoodSearchResult[] }>(
           `/api/health/food-search?${params.toString()}`,
         ),
       );
@@ -243,6 +244,54 @@ export function deleteMealById(id: string) {
   return runEffect(deleteJson<unknown>("/api/health/meals", { id }));
 }
 
+export type HevyConnectionSettings = {
+  connected: boolean;
+  hasApiKey: boolean;
+  lastCheckedAt: string | null;
+  secretProvider: string | null;
+};
+
+export type HevyRoutineSet = {
+  type: string;
+  reps: number | null;
+  weightKg: number | null;
+  durationSeconds: number | null;
+  distanceMeters: number | null;
+  customMetric: number | null;
+  repRange: { start: number | null; end: number | null } | null;
+};
+
+export type HevyRoutine = {
+  id: string;
+  title: string;
+  updatedAt: string | null;
+  exercises: Array<{
+    title: string;
+    exerciseTemplateId: string | null;
+    restSeconds: number | null;
+    notes: string | null;
+    supersetId: number | null;
+    sets: HevyRoutineSet[];
+  }>;
+};
+
+export type HevyExerciseTemplate = {
+  id: string;
+  title: string;
+};
+
+export function fetchHevySettings(): Promise<HevyConnectionSettings> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<HevyConnectionSettings>(
+      "/v1/integrations/hevy/settings",
+    );
+  }
+
+  return runEffect(
+    requestJson<HevyConnectionSettings>("/api/integrations/hevy/settings"),
+  );
+}
+
 export function saveHevySettings(apiKey: string) {
   if (shouldUseBrowserLocalBackend()) {
     return requestBrowserLocalJson<unknown>("/v1/integrations/hevy/settings", {
@@ -256,14 +305,75 @@ export function saveHevySettings(apiKey: string) {
   );
 }
 
-export function syncHevy() {
+export type HevySyncSummary = {
+  fetched: number;
+  created: number;
+  updated: number;
+  measurementsFetched?: number;
+  measurementsCreated?: number;
+  measurementsUpdated?: number;
+};
+
+export function syncHevy(): Promise<HevySyncSummary> {
   if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<unknown>("/v1/integrations/hevy/sync", {
-      method: "POST",
-    });
+    return requestBrowserLocalJson<HevySyncSummary>(
+      "/v1/integrations/hevy/sync",
+      {
+        method: "POST",
+      },
+    );
   }
 
-  return runEffect(postJson<unknown>("/api/integrations/hevy/sync", {}));
+  return runEffect(
+    postJson<HevySyncSummary>("/api/integrations/hevy/sync", {}),
+  );
+}
+
+export function fetchHevyRoutines(): Promise<{ routines: HevyRoutine[] }> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<{ routines: HevyRoutine[] }>(
+      "/v1/integrations/hevy/routines",
+    );
+  }
+
+  return runEffect(
+    requestJson<{ routines: HevyRoutine[] }>("/api/integrations/hevy/routines"),
+  );
+}
+
+export function saveHevyRoutine(routine: HevyRoutine): Promise<HevyRoutine> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<HevyRoutine>(
+      `/v1/integrations/hevy/routines/${encodeURIComponent(routine.id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(routine),
+      },
+    );
+  }
+
+  return runEffect(
+    requestJson<HevyRoutine>(
+      `/api/integrations/hevy/routines?routineId=${encodeURIComponent(routine.id)}`,
+      { method: "PUT", body: JSON.stringify(routine) },
+    ),
+  );
+}
+
+export function fetchHevyExerciseTemplates(): Promise<{
+  exerciseTemplates: HevyExerciseTemplate[];
+}> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<{
+      exerciseTemplates: HevyExerciseTemplate[];
+    }>("/v1/integrations/hevy/exercise-templates");
+  }
+
+  return runEffect(
+    requestJson<{ exerciseTemplates: HevyExerciseTemplate[] }>(
+      "/api/integrations/hevy/exercise-templates",
+    ),
+  );
 }
 
 export function fetchExerciseStats(exercise: string) {

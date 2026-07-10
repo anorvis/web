@@ -24,6 +24,7 @@ import { IntegrationDialogActions } from "@/features/integrations/components/dia
 import { PROVIDER_MARK } from "@/features/integrations/components/provider-mark";
 import { Settings } from "@/features/integrations/components/settings";
 import type { IntegrationCatalogEntry } from "@/features/overview/types/overview";
+import { clearLifeReadCache } from "@/lib/life-intelligence/life-read-cache";
 import { queryKeys } from "@/lib/query/keys";
 import { getStatusTone } from "@/lib/workspace/view-utils";
 
@@ -43,6 +44,19 @@ export type HevySettings = {
   lastCheckedAt: string | null;
   secretProvider: string | null;
 };
+type HevySyncSummary = {
+  fetched: number;
+  created: number;
+  updated: number;
+  measurementsFetched?: number;
+  measurementsCreated?: number;
+  measurementsUpdated?: number;
+};
+function hevyMeasurementSummary(summary: HevySyncSummary): string {
+  return summary.measurementsFetched === undefined
+    ? "body measurements unavailable"
+    : `${summary.measurementsFetched} measurements (${summary.measurementsCreated ?? 0} new, ${summary.measurementsUpdated ?? 0} updated)`;
+}
 
 type OAuthSettings = {
   connected: boolean;
@@ -194,6 +208,10 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
 
   const refreshIntegrationState = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.overview() });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.health.dashboard(),
+    });
+    void queryClient.invalidateQueries({ queryKey: ["life"] });
     refresh();
   };
 
@@ -210,13 +228,12 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
         "/api/integrations/hevy/settings",
         { apiKey: hevyApiKey },
       );
-      const syncData = await postIntegrationAction<{
-        fetched?: number;
-        created?: number;
-        updated?: number;
-      }>("/api/integrations/hevy/sync");
+      const syncData = await postIntegrationAction<HevySyncSummary>(
+        "/api/integrations/hevy/sync",
+      );
+      clearLifeReadCache();
       setSyncResult(
-        `connected and synced ${syncData.fetched ?? 0} workouts · ${syncData.created ?? 0} new · ${syncData.updated ?? 0} updated`,
+        `connected · ${syncData.fetched} workouts (${syncData.created} new, ${syncData.updated} updated) · ${hevyMeasurementSummary(syncData)}`,
       );
       refreshAndClose();
     } finally {
@@ -228,15 +245,14 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     setSaving(true);
     setSyncResult(null);
     try {
-      const data = await postIntegrationAction<{
-        fetched?: number;
-        created?: number;
-        updated?: number;
-      }>("/api/integrations/hevy/sync");
-      setSyncResult(
-        `synced ${data.fetched ?? 0} workouts · ${data.created ?? 0} new · ${data.updated ?? 0} updated`,
+      const data = await postIntegrationAction<HevySyncSummary>(
+        "/api/integrations/hevy/sync",
       );
-      refresh();
+      clearLifeReadCache();
+      setSyncResult(
+        `synced ${data.fetched} workouts (${data.created} new, ${data.updated} updated) · ${hevyMeasurementSummary(data)}`,
+      );
+      refreshIntegrationState();
     } finally {
       setSaving(false);
     }

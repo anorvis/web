@@ -71,6 +71,24 @@ function nextOccurrence(counts: Map<string, number>, fingerprint: string) {
   return next;
 }
 
+function mappedValue(
+  row: string[],
+  column: number | undefined,
+): string | undefined {
+  if (column == null) return undefined;
+  const value = row[column]?.trim();
+  return value ? value : undefined;
+}
+
+function mappedCurrency(
+  row: string[],
+  column: number | undefined,
+): Currency | undefined {
+  const value = mappedValue(row, column)?.toUpperCase();
+  if (value === "CAD" || value === "USD" || value === "BTC") return value;
+  return undefined;
+}
+
 const BANK_PROFILES: BankProfile[] = [
   {
     key: "chase_cc",
@@ -276,12 +294,20 @@ export function parseCSVManual(
     const amount = Number.parseFloat(row[mapping.amount]);
     if (Number.isNaN(amount)) continue;
     const description = row[mapping.description]?.trim() ?? "";
-    const category =
-      mapping.category != null
-        ? (row[mapping.category]?.trim() ?? "uncategorized")
-        : "uncategorized";
+    const category = mappedValue(row, mapping.category);
+    const account = mappedValue(row, mapping.account);
+    const currency = mappedCurrency(row, mapping.currency);
+    const notes = mappedValue(row, mapping.notes);
     const date = parseDate(row[mapping.date]);
-    const fingerprint = [date, description, amount, category, "USD"].join("|");
+    const fingerprint = [
+      date,
+      description,
+      amount,
+      category ?? "uncategorized",
+      account ?? accountName,
+      currency ?? "USD",
+      notes ?? "",
+    ].join("|");
     transactions.push({
       id: stableTransactionId(
         "manual",
@@ -298,10 +324,12 @@ export function parseCSVManual(
       date,
       description,
       amount,
-      category,
-      account: accountName,
+      category: category ?? "uncategorized",
+      account: account ?? accountName,
       source: "manual",
-      originalCurrency: "USD",
+      originalCurrency: currency ?? "USD",
+      ...(currency ? { currency } : {}),
+      ...(notes ? { notes } : {}),
     });
   }
 

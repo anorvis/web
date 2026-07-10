@@ -12,6 +12,10 @@ import {
   toDateString,
   weekHeaderDays,
 } from "@/features/life/lib/calendar-utils";
+import {
+  calendarTagColorStyle,
+  eventUsesTagColor,
+} from "@/features/life/lib/tag-colors";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import type { CalendarEvent, LayoutEvent } from "@/types/workspace";
 
@@ -42,11 +46,12 @@ function getEventBlockTone(event: CalendarEvent) {
   if (event.type === "plannedTask") return getTaskTone("session");
   if (event.type === "focusTime" && event.source === "time-block")
     return "border-l-purple-500 bg-purple-500/10 text-purple-800 dark:text-purple-100";
+  if (eventUsesTagColor(event)) return "text-foreground";
+  const tagTone = getTagTone(event.tag);
+  if (tagTone) return tagTone;
   if (event.source === "google-calendar") {
     return getGoogleCalendarTone(event.calendarId ?? event.id);
   }
-  const tagTone = getTagTone(event.tag);
-  if (tagTone) return tagTone;
   if (event.source === "local") {
     return "border-l-foreground bg-foreground/10 text-foreground";
   }
@@ -87,6 +92,29 @@ function getTagTone(tag?: string | null) {
       return "border-l-pink-500 bg-pink-500/10 text-pink-700 dark:text-pink-200";
     case "travel":
       return "border-l-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-200";
+    case "google calendar":
+      return "border-l-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-200";
+    case "hevy":
+      return "border-l-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+    default:
+      return "";
+  }
+}
+
+function getAllDayTagTone(tag?: string | null) {
+  switch (tag?.toLowerCase()) {
+    case "work":
+    case "google calendar":
+      return "block w-full min-w-0 overflow-hidden border-l-2 border-l-sky-500 bg-sky-500/10 px-1.5 py-0.5 text-left text-sky-700 hover:bg-sky-500/15 dark:text-sky-200";
+    case "personal":
+      return "block w-full min-w-0 overflow-hidden border-l-2 border-l-violet-500 bg-violet-500/10 px-1.5 py-0.5 text-left text-violet-700 hover:bg-violet-500/15 dark:text-violet-200";
+    case "health":
+    case "hevy":
+      return "block w-full min-w-0 overflow-hidden border-l-2 border-l-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 text-left text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-200";
+    case "social":
+      return "block w-full min-w-0 overflow-hidden border-l-2 border-l-pink-500 bg-pink-500/10 px-1.5 py-0.5 text-left text-pink-700 hover:bg-pink-500/15 dark:text-pink-200";
+    case "travel":
+      return "block w-full min-w-0 overflow-hidden border-l-2 border-l-orange-500 bg-orange-500/10 px-1.5 py-0.5 text-left text-orange-700 hover:bg-orange-500/15 dark:text-orange-200";
     default:
       return "";
   }
@@ -157,6 +185,7 @@ const EventBlock = memo(function EventBlock({
         minHeight: "14px",
         left: `${leftPct}%`,
         width: `${widthPct}%`,
+        ...calendarTagColorStyle(event),
       }}
       title={`${event.summary}\n${formatMinuteRange(event.startMinute, event.endMinute)}`}
       data-event-block
@@ -188,7 +217,6 @@ const EventBlock = memo(function EventBlock({
     >
       <p className={calendarStyles.eventBlockTitle}>
         {event.type === "taskDeadline" ? "due: " : ""}
-        {event.tag ? `[${event.tag}] ` : ""}
         {event.summary}
       </p>
       {!isShort && (
@@ -452,14 +480,18 @@ const AllDayRow = memo(function AllDayRow({
                     ? calendarStyles.deadlineAllDayChip
                     : event.type === "plannedTask"
                       ? "block w-full min-w-0 overflow-hidden border-l-2 border-l-teal-500 border-dashed bg-teal-500/10 px-1.5 py-0.5 text-left text-teal-800 hover:bg-teal-500/15 dark:text-teal-100"
-                      : event.source === "google-calendar"
-                        ? calendarStyles.googleAllDayChip
-                        : calendarStyles.allDayChip
+                      : eventUsesTagColor(event)
+                        ? "block w-full min-w-0 overflow-hidden border-l-2 px-1.5 py-0.5 text-left text-foreground hover:bg-foreground/10"
+                        : getAllDayTagTone(event.tag) ||
+                          (event.source === "google-calendar"
+                            ? calendarStyles.googleAllDayChip
+                            : calendarStyles.allDayChip)
                 } ${onEventClick ? "cursor-pointer" : ""} ${
                   isDraggableTaskEvent(event)
                     ? "cursor-grab active:cursor-grabbing"
                     : ""
                 } ${draggingEventId === event.id ? "opacity-0" : ""}`}
+                style={calendarTagColorStyle(event)}
                 data-event-block
                 onClick={onEventClick ? () => onEventClick(event) : undefined}
                 draggable={

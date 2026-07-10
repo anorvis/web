@@ -7,16 +7,25 @@ export const queryKeys = {
     tasks: () => ["life", "tasks"] as const,
     calendar: (view: string, key: string) =>
       ["life", "calendar", view, key] as const,
+    tags: () => ["life", "tags"] as const,
   },
   health: {
     dashboard: () => ["health", "dashboard"] as const,
+    recipes: () => ["health", "recipes"] as const,
     workouts: (page: number) => ["health", "workouts", page] as const,
     workout: (id: string) => ["health", "workout", id] as const,
     exerciseStats: (exercise: string) =>
       ["health", "exercise-stats", exercise] as const,
+    recipeSearch: (query: string) =>
+      ["health", "recipe-search", query] as const,
+    foodSearch: (provider: string, query: string) =>
+      ["health", "food-search", provider, query] as const,
   },
   finance: {
-    snapshot: () => ["finance", "snapshot"] as const,
+    snapshot: (currency?: string) =>
+      currency
+        ? (["finance", "snapshot", currency] as const)
+        : (["finance", "snapshot"] as const),
   },
   dev: {
     runs: () => ["dev", "runs"] as const,

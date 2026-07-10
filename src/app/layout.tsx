@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Instrument_Serif } from "next/font/google";
 import Script from "next/script";
-import { LocalBackendGate } from "@/components/landing/local-backend-gate";
+import { AppDataPreloader } from "@/components/providers/app-data-preloader";
+import { AppQueryEvents } from "@/components/providers/app-query-events";
 import { WebAppProviders } from "@/components/providers/web-app-providers";
-import { isAnorvisProdRuntime } from "@/lib/anorvis-runtime";
 import "@fontsource/cossette-titre";
 import "./globals.css";
 import { Toaster } from "@anorvis/ui/sonner";
@@ -59,9 +59,9 @@ export default function RootLayout({
           >
             Skip to main content
           </a>
-          <LocalBackendGate isProd={isAnorvisProdRuntime()}>
-            {children}
-          </LocalBackendGate>
+          <AppDataPreloader />
+          <AppQueryEvents />
+          {children}
           <Toaster />
         </WebAppProviders>
       </body>

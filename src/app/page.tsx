@@ -9,7 +9,7 @@ export default function Home() {
         header="home"
         title="home"
         subtitle={formatPageDate()}
-        description="cross-pillar discoveries, signals, and recommendations"
+        className="h-[min(48rem,calc(100dvh-5rem))]"
       >
         <HomeDashboard />
       </WorkspaceHeader>

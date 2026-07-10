@@ -1,10 +1,7 @@
 import "server-only";
 
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
-import {
-  fetchGoogleCalendarEvents,
-  getGoogleWorkspaceStatus,
-} from "@/lib/google-workspace";
+import { getGoogleWorkspaceStatus } from "@/lib/google-workspace";
 import { readWorkspaceDocument } from "@/lib/os-workspace-data";
 import {
   isCalendarEventArray,
@@ -16,7 +13,7 @@ import type {
   ProviderSetupStatus,
   TodayEvent,
 } from "@/types/workspace";
-import { platformCalendarEventToUiEvent } from "./calendar-adapters";
+import { platformCalendarEventToUiEvents } from "./calendar-adapters";
 import { getWeekStart, toDateString } from "./calendar-utils";
 import { resolveTimeZone } from "./google-api";
 import {
@@ -64,27 +61,15 @@ export async function fetchMultiCalendarEvents(input?: {
   const weekEnd = input?.timeMax ?? new Date(weekStart);
   if (!input?.timeMax) weekEnd.setDate(weekEnd.getDate() + 7);
   const taskEvents = await fetchTaskPlanEvents();
-  const localEvents = await fetchLocalWebEvents();
   const filteredTaskEvents = taskEvents.filter((event) => {
-    const eventDate = new Date(`${event.date}T12:00:00`);
-    return eventDate >= weekStart && eventDate <= weekEnd;
-  });
-  const filteredLocalEvents = localEvents.filter((event) => {
     const eventDate = new Date(`${event.date}T12:00:00`);
     return eventDate >= weekStart && eventDate <= weekEnd;
   });
 
   try {
+    const gatewayEvents = await fetchGatewayCalendarEvents(weekStart, weekEnd);
     return {
-      items: [
-        ...(await fetchGoogleCalendarEvents({
-          timeMin: weekStart,
-          timeMax: weekEnd,
-          maxResults: 250,
-        })),
-        ...filteredLocalEvents,
-        ...filteredTaskEvents,
-      ],
+      items: [...gatewayEvents, ...filteredTaskEvents],
     };
   } catch {
     return {
@@ -94,7 +79,6 @@ export async function fetchMultiCalendarEvents(input?: {
           id: "web-life-calendar-events",
           isValue: isCalendarEventArray,
         })) ?? []),
-        ...filteredLocalEvents,
         ...filteredTaskEvents,
       ],
     };
@@ -105,13 +89,18 @@ type WebCalendarEventDocument = {
   events: PlatformCalendarEvent[];
 };
 
-async function fetchLocalWebEvents(): Promise<CalendarEvent[]> {
+async function fetchGatewayCalendarEvents(
+  timeMin: Date,
+  timeMax: Date,
+): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+  });
   const payload = await gatewayFetchJson<WebCalendarEventDocument>(
-    "/v1/calendar/events?includeProviders=false",
-  ).catch(() => ({ events: [] }));
-  return payload.events
-    .map(platformCalendarEventToUiEvent)
-    .filter((event): event is CalendarEvent => event !== null);
+    `/v1/calendar/events?${params.toString()}`,
+  );
+  return payload.events.flatMap(platformCalendarEventToUiEvents);
 }
 
 async function fetchTaskPlan(): Promise<TaskPlan | null> {

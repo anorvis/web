@@ -1,9 +1,11 @@
 "use client";
 
 import { workspacePageStyles } from "@anorvis/ui/styles";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChangeEvent } from "react";
 import { useRef, useState } from "react";
 import { searchExercise, searchFood } from "@/features/health/api/health";
+import { saveRecipe } from "@/features/health/api/recipes";
 import { HealthActionsProvider } from "@/features/health/components/actions";
 import { QuizPrompt } from "@/features/health/components/intro";
 import { MealDialog } from "@/features/health/components/meal";
@@ -30,9 +32,7 @@ import {
   inToCm,
   kgToLb,
   lbToKg,
-  readSavedRecipes,
   readWorkoutTemplates,
-  recipeStorageKey,
   sumMeals,
   type WorkoutTemplate,
   weekDays,
@@ -40,6 +40,7 @@ import {
 } from "@/features/health/utils/forms";
 import { toDateString } from "@/features/life/lib/calendar-utils";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { queryKeys } from "@/lib/query/keys";
 export function HealthCommandCenter({
   dashboard,
 }: {
@@ -72,12 +73,17 @@ export function HealthCommandCenter({
     isPending,
     submit,
   } = useHealthController();
+  const queryClient = useQueryClient();
+  const recipeMutation = useMutation({
+    mutationFn: saveRecipe,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.health.recipes() }),
+  });
   const mealSearchRequestId = useRef(0);
   const profile = dashboard.macroProfile;
   const [mealSearch, setMealSearch] = useState("");
   const [mealSearchLoading, setMealSearchLoading] = useState(false);
   const [mealProvider, setMealProvider] = useState("all");
-  const [savedRecipes, setSavedRecipes] = useState<FoodSearchResult[]>([]);
   const [mealSearchResults, setMealSearchResults] = useState<
     FoodSearchResult[]
   >([]);
@@ -94,7 +100,6 @@ export function HealthCommandCenter({
 
   useMountEffect(() => {
     hydrateUnitSystem();
-    setSavedRecipes(readSavedRecipes());
     setSavedWorkoutTemplates(readWorkoutTemplates());
   });
   const [quiz, setQuiz] = useState({
@@ -263,20 +268,9 @@ export function HealthCommandCenter({
     }
     setMealSearchLoading(true);
     try {
-      const payload = (await searchFood(query, mealProvider)) as {
-        results?: FoodSearchResult[];
-      };
-      const queryTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
-      const recipes =
-        mealProvider === "all" || mealProvider === "recipe"
-          ? savedRecipes.filter((recipe) =>
-              queryTerms.every((term) =>
-                recipe.name.toLowerCase().includes(term),
-              ),
-            )
-          : [];
+      const payload = await searchFood(query, mealProvider);
       if (mealSearchRequestId.current === requestId) {
-        setMealSearchResults([...(payload.results ?? []), ...recipes]);
+        setMealSearchResults(payload.results ?? []);
         setMealSearchPage(0);
       }
     } finally {
@@ -335,18 +329,24 @@ export function HealthCommandCenter({
 
   function maybeSaveRecipe() {
     if (!saveAsRecipe || !meal.name.trim()) return;
-    const recipe: FoodSearchResult = {
-      provider: "recipe",
-      id: crypto.randomUUID(),
-      name: meal.name.trim().toLowerCase(),
+    recipeMutation.mutate({
+      title: meal.name.trim(),
+      source: "manual",
+      sourceId: null,
+      sourceUrl: null,
+      imageUrl: null,
+      youtubeUrl: null,
+      category: null,
+      area: null,
       calories: Number(meal.calories) || 0,
       proteinGrams: Number(meal.proteinGrams) || 0,
       carbsGrams: Number(meal.carbsGrams) || 0,
       fatGrams: Number(meal.fatGrams) || 0,
-    };
-    const next = [recipe, ...savedRecipes];
-    setSavedRecipes(next);
-    localStorage.setItem(recipeStorageKey, JSON.stringify(next));
+      isFavorite: false,
+      notes: meal.notes.trim() || null,
+      ingredients: [],
+      instructions: [],
+    });
   }
 
   function maybeSaveWorkoutTemplate() {

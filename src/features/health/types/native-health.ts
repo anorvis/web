@@ -46,6 +46,8 @@ export type NativeWorkout = {
       setType: string;
       weightKg: number | null;
       reps: number | null;
+      durationSeconds?: number | null;
+      distanceMeters?: number | null;
     }[];
   }[];
 };
@@ -55,9 +57,75 @@ export type NativeHealthDashboard = {
   todayMeals: NativeMeal[];
   recentMeals: NativeMeal[];
   recentWorkouts: NativeWorkout[];
-  latestCheckin: {
-    weightKg: number;
-    adherencePercent: number;
-    checkedInAt: string;
-  } | null;
+  measurementHistory: NativeMeasurement[];
+};
+
+export type NativeMeasurement = {
+  id: string;
+  source?: string;
+  weightKg: number | null;
+  leanMassKg?: number | null;
+  bodyFatPercent: number | null;
+  heightCm: number | null;
+  neckCm?: number | null;
+  shoulderCm?: number | null;
+  chestCm?: number | null;
+  leftBicepCm?: number | null;
+  rightBicepCm?: number | null;
+  leftForearmCm?: number | null;
+  rightForearmCm?: number | null;
+  abdomenCm?: number | null;
+  waistCm?: number | null;
+  hipsCm?: number | null;
+  leftThighCm?: number | null;
+  rightThighCm?: number | null;
+  leftCalfCm?: number | null;
+  rightCalfCm?: number | null;
+  recordedAt: string;
+};
+
+export type NativeRecipeIngredient = {
+  id: string;
+  name: string;
+  quantity: string | null;
+};
+
+export type NativeRecipe = {
+  id: string;
+  title: string;
+  source: string;
+  sourceId: string | null;
+  sourceUrl: string | null;
+  imageUrl: string | null;
+  youtubeUrl: string | null;
+  category: string | null;
+  area: string | null;
+  calories: number;
+  proteinGrams: number;
+  carbsGrams: number;
+  fatGrams: number;
+  isFavorite: boolean;
+  notes: string | null;
+  ingredients: NativeRecipeIngredient[];
+  instructions: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NativeRecipeInput = Omit<
+  NativeRecipe,
+  "id" | "createdAt" | "updatedAt" | "ingredients"
+> & { ingredients: { name: string; quantity: string | null }[] };
+
+export type ExternalRecipeResult = {
+  id: string;
+  source: "themealdb";
+  title: string;
+  category: string | null;
+  area: string | null;
+  imageUrl: string | null;
+  sourceUrl: string | null;
+  youtubeUrl: string | null;
+  ingredients: { name: string; quantity: string | null }[];
+  instructions: string[];
 };

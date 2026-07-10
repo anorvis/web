@@ -194,7 +194,7 @@ export function TodayWorkloadPanel({ snapshot }: { snapshot: LifeSnapshot }) {
           <div
             className={lifeStyles.workloadGauge}
             style={{
-              background: `conic-gradient(${pressure.ring} ${pressurePercent}%, hsl(var(--muted)) 0)`,
+              background: `conic-gradient(${pressure.ring} ${pressurePercent}%, var(--muted) 0)`,
             }}
           >
             <div className={lifeStyles.workloadGaugeCore}>{pressureScore}</div>

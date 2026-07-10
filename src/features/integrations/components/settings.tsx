@@ -1,8 +1,18 @@
 import { Button } from "@anorvis/ui/button";
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { useIntegrationSettings } from "@/features/integrations/components/actions";
+import {
+  type IntegrationSettingsState,
+  useIntegrationSettings,
+} from "@/features/integrations/components/actions";
 
-type SettingsProps = ReturnType<typeof useIntegrationSettings>;
+type SettingsProps = IntegrationSettingsState;
+
+const compactSettingsPanel = "space-y-2.5 border border-border p-3";
+const compactSettingsCopy =
+  "text-[0.62rem] leading-relaxed text-muted-foreground";
+const compactFormInput =
+  "h-7 w-full rounded-none border border-border bg-transparent px-2 text-[0.6rem] text-foreground placeholder:text-muted-foreground/50 focus:border-foreground focus:outline-none";
+const compactFormLabel = "space-y-1";
 
 export function Settings() {
   const props = useIntegrationSettings();
@@ -198,32 +208,34 @@ function OAuthSettings({
 }) {
   const id = label.toLowerCase();
   return (
-    <div className={workspacePageStyles.settingsPanel}>
+    <div className={compactSettingsPanel}>
       <p className={workspacePageStyles.cardLabel}>{"// oauth client"}</p>
-      <p className={workspacePageStyles.cardBodyText}>{description}</p>
-      <label className={workspacePageStyles.formLabel}>
-        <span className={workspacePageStyles.metricLabel}>client id</span>
-        <input
-          value={clientId}
-          onChange={(event) => onClientIdChange(event.target.value)}
-          placeholder={hasClientId ? "saved client id" : "client id"}
-          className={workspacePageStyles.formInput}
-          aria-label={`${id} client id`}
-        />
-      </label>
-      <label className={workspacePageStyles.formLabel}>
-        <span className={workspacePageStyles.metricLabel}>client secret</span>
-        <input
-          type="password"
-          value={clientSecret}
-          onChange={(event) => onClientSecretChange(event.target.value)}
-          placeholder={
-            hasClientSecret ? "saved client secret" : "client secret"
-          }
-          className={workspacePageStyles.formInput}
-          aria-label={`${id} client secret`}
-        />
-      </label>
+      <p className={compactSettingsCopy}>{description}</p>
+      <div className="grid gap-2 md:grid-cols-2">
+        <label className={compactFormLabel}>
+          <span className={workspacePageStyles.metricLabel}>client id</span>
+          <input
+            value={clientId}
+            onChange={(event) => onClientIdChange(event.target.value)}
+            placeholder={hasClientId ? "saved client id" : "client id"}
+            className={compactFormInput}
+            aria-label={`${id} client id`}
+          />
+        </label>
+        <label className={compactFormLabel}>
+          <span className={workspacePageStyles.metricLabel}>client secret</span>
+          <input
+            type="password"
+            value={clientSecret}
+            onChange={(event) => onClientSecretChange(event.target.value)}
+            placeholder={
+              hasClientSecret ? "saved client secret" : "client secret"
+            }
+            className={compactFormInput}
+            aria-label={`${id} client secret`}
+          />
+        </label>
+      </div>
       {canStartOAuth ? (
         <p className={`${workspacePageStyles.metricLabel} mt-3`}>
           {canAutoRenew
@@ -237,10 +249,10 @@ function OAuthSettings({
 
 function HevySettings(props: SettingsProps) {
   return (
-    <div className={workspacePageStyles.settingsPanel}>
+    <div className={compactSettingsPanel}>
       <div>
         <p className={workspacePageStyles.cardLabel}>{"// hevy api key"}</p>
-        <p className={workspacePageStyles.cardBodyText}>
+        <p className={compactSettingsCopy}>
           Enter your Hevy API key. Anorvis stores it through the OS secrets
           manager and only keeps a pointer in integration settings.
         </p>
@@ -271,7 +283,7 @@ function HevySettings(props: SettingsProps) {
             onClick={props.syncHevy}
             className={workspacePageStyles.actionButton}
           >
-            sync workouts
+            sync workouts + measurements
           </Button>
         </>
       ) : null}
@@ -367,14 +379,16 @@ function CredentialSettings({
   lastCheckedAt?: string | null;
 }) {
   return (
-    <div className={workspacePageStyles.settingsPanel}>
+    <div className={compactSettingsPanel}>
       <div>
         <p className={workspacePageStyles.cardLabel}>{title}</p>
-        <p className={workspacePageStyles.cardBodyText}>{description}</p>
+        <p className={compactSettingsCopy}>{description}</p>
       </div>
-      {fields.map((field) => (
-        <SecretInput key={field.ariaLabel} {...field} />
-      ))}
+      <div className="grid gap-2 md:grid-cols-2">
+        {fields.map((field) => (
+          <SecretInput key={field.ariaLabel} {...field} />
+        ))}
+      </div>
       {connected ? (
         <p className={workspacePageStyles.metricLabel}>
           Credentials saved{lastCheckedAt ? ` · saved ${lastCheckedAt}` : ""}
@@ -400,14 +414,14 @@ function SecretInput({
   ariaLabel: string;
 }) {
   return (
-    <label className={workspacePageStyles.formLabel}>
+    <label className={compactFormLabel}>
       <span className={workspacePageStyles.metricLabel}>{label}</span>
       <input
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className={workspacePageStyles.formInput}
+        className={compactFormInput}
         aria-label={ariaLabel}
       />
     </label>

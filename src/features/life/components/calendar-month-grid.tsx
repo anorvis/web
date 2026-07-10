@@ -2,6 +2,10 @@
 
 import { calendarStyles } from "@anorvis/ui/styles";
 import { memo } from "react";
+import {
+  calendarTagColorStyle,
+  eventUsesTagColor,
+} from "@/features/life/lib/tag-colors";
 import type { CalendarEvent } from "@/types/workspace";
 
 const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -13,11 +17,13 @@ function getMonthEventTone(event: CalendarEvent) {
     return "border-l-2 border-dashed border-l-teal-500 bg-teal-500/10 pl-1 text-[0.5rem] text-teal-800 dark:text-teal-100 truncate leading-tight";
   if (event.type === "focusTime" && event.source === "time-block")
     return "border-l-2 border-l-purple-500 bg-purple-500/10 pl-1 text-[0.5rem] text-purple-800 dark:text-purple-100 truncate leading-tight";
+  if (eventUsesTagColor(event))
+    return "truncate border-l-2 pl-1 text-[0.5rem] leading-tight text-foreground";
+  const tagTone = getMonthTagTone(event.tag);
+  if (tagTone) return tagTone;
   if (event.source === "google-calendar") {
     return getMonthGoogleTone(event.calendarId ?? event.id);
   }
-  const tagTone = getMonthTagTone(event.tag);
-  if (tagTone) return tagTone;
   if (event.source === "local") {
     return "truncate border-l-2 border-l-foreground bg-foreground/10 pl-1 text-[0.5rem] leading-tight text-foreground";
   }
@@ -36,6 +42,10 @@ function getMonthTagTone(tag?: string | null) {
       return "truncate border-l-2 border-l-pink-500 bg-pink-500/10 pl-1 text-[0.5rem] leading-tight text-pink-700 dark:text-pink-200";
     case "travel":
       return "truncate border-l-2 border-l-orange-500 bg-orange-500/10 pl-1 text-[0.5rem] leading-tight text-orange-700 dark:text-orange-200";
+    case "google calendar":
+      return "truncate border-l-2 border-l-sky-500 bg-sky-500/10 pl-1 text-[0.5rem] leading-tight text-sky-700 dark:text-sky-200";
+    case "hevy":
+      return "truncate border-l-2 border-l-emerald-500 bg-emerald-500/10 pl-1 text-[0.5rem] leading-tight text-emerald-700 dark:text-emerald-200";
     default:
       return "";
   }
@@ -139,9 +149,12 @@ export const MonthGrid = memo(function MonthGrid({
               </span>
               <div className="flex-1 min-h-0 overflow-hidden space-y-0.5 mt-0.5">
                 {dayEvts.slice(0, MAX_VISIBLE_EVENTS).map((ev) => (
-                  <p key={ev.id} className={getMonthEventTone(ev)}>
+                  <p
+                    key={ev.id}
+                    className={getMonthEventTone(ev)}
+                    style={calendarTagColorStyle(ev)}
+                  >
                     {ev.type === "taskDeadline" ? "due: " : ""}
-                    {ev.tag ? `[${ev.tag}] ` : ""}
                     {ev.summary}
                   </p>
                 ))}

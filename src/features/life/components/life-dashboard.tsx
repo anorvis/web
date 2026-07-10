@@ -1,12 +1,17 @@
 "use client";
 
-import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Maximize2, Pause, Play } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { WorkspaceCard } from "@/components/layout/workspace";
-import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import {
+  WorkspaceCard,
+  WorkspaceMetricButton,
+} from "@/components/layout/workspace";
+import {
+  WorkspaceDialog,
+  WorkspaceModalFrame,
+} from "@/components/layout/workspace-dialog";
 import {
   AddSourceButton,
   Section,
@@ -24,12 +29,13 @@ import {
   plannedSessionKeys,
   rangeFor,
   sessionBlockKey,
-  tagIdFromName,
 } from "@/features/life/components/life-dashboard-calculations";
 import {
+  FocusSessionList,
   TagsDialog,
   TodoDialog,
 } from "@/features/life/components/life-dashboard-modals";
+import { useLifeTagCatalog } from "@/features/life/components/life-dashboard-tags";
 import * as LifeUi from "@/features/life/components/life-dashboard-ui";
 import {
   calendarQueryKey,
@@ -40,13 +46,12 @@ import { useMountEffect } from "@/hooks/use-mount-effect";
 import { usePersistedQuery } from "@/hooks/use-persisted-query";
 import { lifeFromSources } from "@/lib/life-intelligence/adapters";
 import {
-  formatDateTime,
   getBlockStart,
   openTodos,
   sessionMinutes,
   timeBlocksToCalendarEvents,
 } from "@/lib/life-intelligence/derive";
-import type { Session, Tag } from "@/lib/life-intelligence/model";
+import type { Session } from "@/lib/life-intelligence/model";
 import { LOCAL_FOCUS_SESSION_ID_PREFIX } from "@/lib/life-intelligence/model";
 import { queryKeys } from "@/lib/query/keys";
 
@@ -74,15 +79,6 @@ export function LifeDashboard() {
   const [activeModal, setActiveModal] = useState<LifeUi.DetailModal>(null);
   const [todoView, setTodoView] = useState<LifeUi.TodoView>("list");
   const [focusView, setFocusView] = useState<LifeUi.FocusView>("list");
-  const [customTags, setCustomTags] = useState<Tag[]>([]);
-  const [hiddenTagIds, setHiddenTagIds] = useState<Set<string>>(new Set());
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [draftTag, setDraftTag] = useState("");
-  const [tagEdit, setTagEdit] = useState<{
-    id: string;
-    name: string;
-    color: string;
-  } | null>(null);
   const todayRef = useRef(new Date());
   const queryClient = useQueryClient();
   const completeTodoMutation = useMutation({
@@ -122,10 +118,8 @@ export function LifeDashboard() {
     queryKey: calendarQueryKey(calendarMode, effectiveDate),
     queryFn: () =>
       fetchCalendarEvents(calendarRangeParams(effectiveDate, calendarMode)),
-    placeholderData: (previous) => previous,
     staleTime: 15 * 60_000,
     gcTime: 24 * 60 * 60_000,
-    refetchOnMount: false,
   });
 
   const calendarEventsForLife = useMemo(() => {
@@ -143,12 +137,32 @@ export function LifeDashboard() {
     () => plannedSessionKeys(calendarEventsForLife),
     [calendarEventsForLife],
   );
+  const sourceLife = useMemo(
+    () =>
+      lifeFromSources({
+        snapshot: snapshotQuery.hydratedData,
+        calendarEvents: calendarEventsForLife,
+      }),
+    [calendarEventsForLife, snapshotQuery.hydratedData],
+  );
+  const {
+    tags,
+    loading: tagsLoading,
+    tagById,
+    selectedTagIds,
+    setSelectedTagIds,
+    draftTag,
+    setDraftTag,
+    addTag,
+    tagEdit,
+    setTagEdit,
+    saveTagEdit,
+    removeSelectedTags,
+    busy: tagBusy,
+    error: tagError,
+  } = useLifeTagCatalog();
 
   const life = useMemo(() => {
-    const sourceLife = lifeFromSources({
-      snapshot: snapshotQuery.hydratedData,
-      calendarEvents: calendarEventsForLife,
-    });
     const dismissedFocusSessionIdSet = new Set(dismissedFocusSessionIds);
     const localSessionIdSet = new Set(
       localSessions.map((session) => session.id),
@@ -166,12 +180,9 @@ export function LifeDashboard() {
       const blockKey = sessionBlockKey(block);
       return !blockKey || !sourcePlannedSessionKeys.has(blockKey);
     });
-    const visibleSourceTags = sourceLife.tags.filter(
-      (tag) => !hiddenTagIds.has(tag.id),
-    );
     return {
       ...sourceLife,
-      tags: [...visibleSourceTags, ...customTags],
+      tags,
       timeBlocks: [
         ...sourceTimeBlocks,
         ...localSessions.filter(
@@ -180,19 +191,13 @@ export function LifeDashboard() {
       ],
     };
   }, [
-    snapshotQuery.hydratedData,
-    calendarEventsForLife,
+    sourceLife,
     dismissedFocusSessionIds,
     localSessions,
     sourcePlannedSessionKeys,
-    customTags,
-    hiddenTagIds,
+    tags,
   ]);
 
-  const tagById = useMemo(
-    () => new Map(life.tags.map((tag) => [tag.id, tag])),
-    [life.tags],
-  );
   const tagNames = useMemo(
     () => new Map(life.tags.map((tag) => [tag.id, tag.name])),
     [life.tags],
@@ -221,9 +226,19 @@ export function LifeDashboard() {
         return true;
       }),
     });
-    return [...sourceEvents, ...generatedEvents].filter((event) =>
-      calendarEventMatchesFilters(event, selectedTagIds, tagById),
+    const colorByTagName = new Map(
+      life.tags.map((tag) => [tag.name.toLowerCase(), tag.color ?? null]),
     );
+    return [...sourceEvents, ...generatedEvents]
+      .filter((event) =>
+        calendarEventMatchesFilters(event, selectedTagIds, tagById),
+      )
+      .map((event) => ({
+        ...event,
+        tagColor: event.tag
+          ? (colorByTagName.get(event.tag.toLowerCase()) ?? event.tagColor)
+          : event.tagColor,
+      }));
   }, [calendarQuery.data, life, selectedTagIds, tagById]);
 
   const blocks = useMemo(
@@ -263,8 +278,13 @@ export function LifeDashboard() {
   const snapshotError = snapshotQuery.isError && !snapshotQuery.hydratedData;
   const calendarError = calendarQuery.isError;
   const snapshotLoading = snapshotQuery.hydrationLoading;
-  const loading =
-    snapshotLoading || (!calendarQuery.data && calendarQuery.isLoading);
+  const hasGoogleCalendarSource =
+    snapshotQuery.hydratedData?.googleCalendarStatus === "connected" ||
+    calendarQuery.data?.some((event) => event.source === "google-calendar");
+  const connectedSources = [
+    "local calendar",
+    ...(hasGoogleCalendarSource ? ["google calendar"] : []),
+  ];
 
   const startTimer = (input?: {
     title?: string;
@@ -313,59 +333,8 @@ export function LifeDashboard() {
     if (!open) setActiveModal(null);
   };
 
-  const addTag = () => {
-    const name = draftTag.trim();
-    if (!name) return;
-    const id = tagIdFromName(name) || `tag-${Date.now()}`;
-    const sourceTag = life.tags.find((tag) => tag.id === id);
-    if (sourceTag) {
-      setHiddenTagIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    } else {
-      setCustomTags((current) =>
-        current.some((tag) => tag.id === id)
-          ? current.map((tag) =>
-              tag.id === id
-                ? { ...tag, name, color: tag.color ?? "#60a5fa" }
-                : tag,
-            )
-          : [...current, { id, name, color: "#60a5fa" }],
-      );
-    }
-    setDraftTag("");
-  };
-
-  const saveTagEdit = () => {
-    if (!tagEdit) return;
-    const name = tagEdit.name.trim();
-    if (!name) return;
-    setCustomTags((current) => {
-      const nextTag = { id: tagEdit.id, name, color: tagEdit.color };
-      return current.some((tag) => tag.id === tagEdit.id)
-        ? current.map((tag) => (tag.id === tagEdit.id ? nextTag : tag))
-        : [...current, nextTag];
-    });
-    setHiddenTagIds((current) => new Set(current).add(tagEdit.id));
-    setTagEdit(null);
-  };
-
   return (
     <div className="space-y-4">
-      <Section
-        label="sources"
-        title="calendar setup"
-        headerExtra={<AddSourceButton domain="life" />}
-      >
-        <p className={workspacePageStyles.cardBodyText}>
-          Add Google Calendar or local sources here. Blocks count dated events,
-          due todos, and focus sessions in the selected {calendarMode}; todos
-          count open queue tasks due in that same range.
-        </p>
-      </Section>
-
       {snapshotError ? (
         <WorkspaceCard>
           <div className="space-y-2 p-4">
@@ -377,18 +346,24 @@ export function LifeDashboard() {
         </WorkspaceCard>
       ) : snapshotLoading ? (
         <WorkspaceCard>
-          <Skeleton className="h-[520px] rounded-none" />
+          <CalendarView
+            hasCalendar
+            today={todayRef.current}
+            events={[]}
+            tasks={[]}
+            tagOptions={[]}
+          />
         </WorkspaceCard>
       ) : (
         <>
           <section className="grid gap-4 xl:grid-cols-4">
-            <LifeUi.MetricButton
+            <WorkspaceMetricButton
               label="blocks"
               value={`${periodBlocks.length}`}
               note={`events + due todos + sessions · selected ${calendarMode}`}
               onClick={() => setActiveModal("blocks")}
             />
-            <LifeUi.MetricButton
+            <WorkspaceMetricButton
               label="todos"
               value={`${todos.length}`}
               note={`${periodTodos.length} due in selected ${calendarMode}`}
@@ -411,7 +386,7 @@ export function LifeDashboard() {
                 </button>
               }
             />
-            <LifeUi.MetricButton
+            <WorkspaceMetricButton
               label="focus"
               value={
                 timerStartedAt
@@ -475,18 +450,16 @@ export function LifeDashboard() {
                 </div>
               }
             />
-            <LifeUi.MetricButton
+            <WorkspaceMetricButton
               label="tags"
-              value={`${life.tags.length}`}
+              value={tagsLoading ? "..." : `${life.tags.length}`}
               note={filterNote}
               onClick={() => setActiveModal("tags")}
             />
           </section>
 
           <WorkspaceCard>
-            {loading ? (
-              <Skeleton className="h-[520px] rounded-none" />
-            ) : calendarError ? (
+            {calendarError ? (
               <div className="space-y-2 p-4">
                 <p className={workspacePageStyles.cardLabel}>{"// calendar"}</p>
                 <p className={workspacePageStyles.cardBodyText}>
@@ -505,6 +478,32 @@ export function LifeDashboard() {
           </WorkspaceCard>
         </>
       )}
+
+      <Section
+        label="sources"
+        title="calendar setup"
+        headerExtra={<AddSourceButton domain="life" />}
+      >
+        <p className={workspacePageStyles.cardBodyText}>
+          Add Google Calendar or local sources here. Blocks above count dated
+          events, due todos, and focus sessions in the selected {calendarMode}.
+          Todos count open queue tasks due in that same range.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[0.58rem] uppercase tracking-[0.18em] text-muted-foreground">
+            sources
+          </span>
+          {connectedSources.map((source) => (
+            <span
+              key={source}
+              className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[0.58rem] uppercase tracking-[0.16em] text-foreground"
+            >
+              <span className="text-emerald-500">●</span>
+              {source} connected
+            </span>
+          ))}
+        </div>
+      </Section>
 
       <LifeUi.BlocksDialog
         open={activeModal === "blocks"}
@@ -537,60 +536,20 @@ export function LifeDashboard() {
         onOpenChange={closeDetailModal}
         className={LifeUi.modalClass}
       >
-        <LifeUi.ModalFrame
+        <WorkspaceModalFrame
           title="focus"
           description={`Focus sessions for the selected ${calendarMode}. Start closes this modal and returns to the calendar.`}
         >
           <div className="flex min-h-0 flex-1 flex-col py-4">
             {focusView === "list" && (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <p className={workspacePageStyles.cardBodyText}>
-                    {sessions.length} sessions ·{" "}
-                    {Math.round(
-                      sessionMinutes({ ...life, timeBlocks: periodBlocks }),
-                    )}
-                    m
-                  </p>
-                  <button
-                    className={workspacePageStyles.modalButton}
-                    type="button"
-                    onClick={() => setFocusView("create")}
-                  >
-                    new session
-                  </button>
-                </div>
-                {sessions.length === 0 ? (
-                  <p className={workspacePageStyles.cardBodyText}>
-                    no focus sessions in this time frame
-                  </p>
-                ) : (
-                  <div className="mt-3 space-y-2">
-                    {sessions.map((session) => (
-                      <button
-                        key={session.id}
-                        type="button"
-                        onClick={() => setFocusView({ edit: session })}
-                        className="w-full border border-border p-3 text-left hover:border-foreground"
-                      >
-                        <p className="text-sm text-foreground">
-                          {session.title}
-                        </p>
-                        <p className="mt-1 text-[0.62rem] uppercase tracking-[0.16em] text-muted-foreground">
-                          {session.startAt
-                            ? formatDateTime(session.startAt)
-                            : "unscheduled"}
-                        </p>
-                        {session.notes && (
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            {session.notes}
-                          </p>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+              <FocusSessionList
+                sessions={sessions}
+                totalMinutes={Math.round(
+                  sessionMinutes({ ...life, timeBlocks: periodBlocks }),
                 )}
-              </>
+                onCreate={() => setFocusView("create")}
+                onEdit={(session) => setFocusView({ edit: session })}
+              />
             )}
             {focusView === "create" && (
               <LifeUi.FocusStartForm
@@ -636,7 +595,7 @@ export function LifeDashboard() {
               />
             )}
           </div>
-        </LifeUi.ModalFrame>
+        </WorkspaceModalFrame>
       </WorkspaceDialog>
 
       <TagsDialog
@@ -645,15 +604,15 @@ export function LifeDashboard() {
         tags={life.tags}
         selectedTagIds={selectedTagIds}
         setSelectedTagIds={setSelectedTagIds}
-        customTags={customTags}
-        setCustomTags={setCustomTags}
-        setHiddenTagIds={setHiddenTagIds}
         draftTag={draftTag}
         setDraftTag={setDraftTag}
         addTag={addTag}
         tagEdit={tagEdit}
         setTagEdit={setTagEdit}
         saveTagEdit={saveTagEdit}
+        onRemoveSelected={removeSelectedTags}
+        busy={tagBusy}
+        error={tagError}
         onFilter={() => setActiveModal(null)}
       />
 

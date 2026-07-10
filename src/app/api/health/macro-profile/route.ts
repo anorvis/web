@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { HealthRequestBodySchema } from "@/features/health/api/schemas";
+import { bmrMifflinStJeor, tdee } from "@/features/health/lib/health-metrics";
 import { gatewayFetchJson } from "@/lib/anorvis-gateway";
 import { decodeUnknownResult } from "@/lib/effect/schema";
 
@@ -26,13 +27,9 @@ function calculateTargets(input: Record<string, unknown>) {
   const sex = String(input.sex || "male");
   const activity = String(input.activityLevel || "moderate");
   const goal = String(input.goal || "maintain");
-  const bmr =
-    10 * weightKg + 6.25 * heightCm - 5 * age + (sex === "female" ? -161 : 5);
-  const multiplier =
-    { sedentary: 1.2, light: 1.375, moderate: 1.55, high: 1.725 }[activity] ??
-    1.55;
+  const bmr = bmrMifflinStJeor({ weightKg, heightCm, age, sex });
   const targetCalories = Math.round(
-    bmr * multiplier + (goal === "gain" ? 250 : goal === "lose" ? -350 : 0),
+    tdee(bmr, activity) + (goal === "gain" ? 250 : goal === "lose" ? -350 : 0),
   );
   const proteinGrams = Math.round(weightKg * (goal === "gain" ? 2 : 1.8));
   const fatGrams = Math.round(

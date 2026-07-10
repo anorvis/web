@@ -9,7 +9,7 @@ export default function Finance() {
         header="finance"
         title="finance"
         subtitle={formatPageDate()}
-        description="accounts, transactions, positions, categories, planning, and simulation boundaries"
+        description="read-only, multi-currency view of accounts, transactions, positions, and spending"
       >
         <FinanceDashboard />
       </WorkspaceHeader>

@@ -1,18 +1,14 @@
 "use client";
 
 import { Button } from "@anorvis/ui/button";
-import {
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@anorvis/ui/dialog";
+import { DialogFooter, DialogTitle } from "@anorvis/ui/dialog";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { cn } from "@anorvis/ui/utils";
 import { Maximize2, Minimize2 } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   WorkspaceDialog,
+  WorkspaceModalFrame,
   workspacePinnedModalFooterClass,
 } from "@/components/layout/workspace-dialog";
 import { EventDetailForm } from "@/features/life/components/event-detail-dialog";
@@ -32,8 +28,6 @@ const controlButtonClass =
   "h-8 rounded-none px-3 font-[var(--font-cossette)] text-xs hover:border-foreground hover:bg-foreground hover:text-background";
 export const modalClass =
   "max-h-[84vh] w-[min(94vw,64rem)] max-w-none overflow-hidden p-0 sm:!max-w-none";
-const modalBodyClass =
-  "flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto px-5 pb-0";
 export const modalFooterClass = workspacePinnedModalFooterClass;
 export type TimerMode = "free" | "pomodoro";
 export type PomodoroConfig = {
@@ -159,39 +153,6 @@ export function blockMeta(block: TimeBlock, tagNames: Map<string, string>) {
   ].join(" · ");
 }
 
-export function MetricButton({
-  label,
-  value,
-  note,
-  onClick,
-  action,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  onClick: () => void;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="relative min-h-28 border border-border transition hover:border-foreground hover:bg-foreground/[0.03]">
-      <button
-        type="button"
-        onClick={onClick}
-        className="h-full min-h-28 w-full p-3 text-left"
-      >
-        <p className="pr-10 text-[0.6rem] uppercase tracking-[0.18em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-1 text-lg leading-none tracking-[0.04em] text-foreground">
-          {value}
-        </p>
-        {note && <p className="mt-2 text-xs text-muted-foreground">{note}</p>}
-      </button>
-      {action && <div className="absolute right-3 top-3">{action}</div>}
-    </div>
-  );
-}
-
 type DetailBlock = LifeData["timeBlocks"][number];
 
 export function BlocksDialog({
@@ -215,6 +176,17 @@ export function BlocksDialog({
 }) {
   const [page, setPage] = useState(0);
   const [selectedBlock, setSelectedBlock] = useState<DetailBlock | null>(null);
+  const wasOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (open && !wasOpen.current) {
+      const nextIndex = periodBlocks.findIndex(
+        (block) => blockStatus(block, clockNow) !== "completed",
+      );
+      const initialIndex = nextIndex >= 0 ? nextIndex : periodBlocks.length - 1;
+      setPage(Math.max(0, Math.floor(initialIndex / BLOCKS_PAGE_SIZE)));
+    }
+    wasOpen.current = open;
+  }, [open, periodBlocks, clockNow]);
   const pageCount = Math.max(
     1,
     Math.ceil(periodBlocks.length / BLOCKS_PAGE_SIZE),
@@ -242,9 +214,9 @@ export function BlocksDialog({
       }}
       className={modalClass}
     >
-      <ModalFrame
+      <WorkspaceModalFrame
         title="blocks"
-        description={`Aggregated events, due todos, and focus sessions for the selected ${calendarMode}. Completed items are crossed out and dimmed above the next item.`}
+        description={`Aggregated events, due todos, and focus sessions for the selected ${calendarMode}. Opens on the page containing the next active item.`}
       >
         <div className="flex min-h-0 flex-1 flex-col space-y-2 pt-4 pb-0">
           {selectedBlock ? (
@@ -399,32 +371,8 @@ export function BlocksDialog({
             </DialogFooter>
           )}
         </div>
-      </ModalFrame>
+      </WorkspaceModalFrame>
     </WorkspaceDialog>
-  );
-}
-
-export function ModalFrame({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex max-h-[84vh] min-h-[38rem] w-full min-w-0 flex-col overflow-hidden">
-      <DialogHeader className="border-b border-border px-5 py-4">
-        <DialogTitle className={workspacePageStyles.cardTitle}>
-          {title}
-        </DialogTitle>
-        <DialogDescription className={workspacePageStyles.cardBodyText}>
-          {description}
-        </DialogDescription>
-      </DialogHeader>
-      <div className={modalBodyClass}>{children}</div>
-    </div>
   );
 }
 

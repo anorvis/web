@@ -15,3 +15,7 @@ export const ExerciseBodySchema = Schema.Record({
 export const ExercisesJsonSchema = Schema.parseJson(
   Schema.Array(Schema.Unknown),
 );
+
+export const RecipeImportBodySchema = Schema.Struct({
+  url: Schema.String,
+});

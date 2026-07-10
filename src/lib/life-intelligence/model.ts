@@ -14,6 +14,7 @@ export type Tag = {
   id: string;
   name: string;
   color?: string;
+  system?: boolean;
 };
 
 export type TimeBlock = {
@@ -121,6 +122,10 @@ export type Account = {
   type: "checking" | "savings" | "credit" | "investment" | "crypto" | "loan";
   currency: string;
   balance?: number;
+  source?: string;
+  status?: string;
+  institution?: string;
+  mask?: string;
   updatedAt: string;
 };
 

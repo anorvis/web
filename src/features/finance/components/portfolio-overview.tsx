@@ -7,7 +7,10 @@ import {
 } from "@anorvis/ui/chart";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
-import { convertAmount } from "@/features/finance/lib/currency";
+import {
+  convertAmount,
+  formatConverted,
+} from "@/features/finance/lib/currency";
 import type {
   AlpacaPortfolio,
   Currency,
@@ -25,7 +28,7 @@ type PortfolioOverviewProps = {
 const chartConfig = {
   equity: {
     label: "equity",
-    color: "hsl(var(--foreground))",
+    color: "var(--foreground)",
   },
 };
 
@@ -45,15 +48,20 @@ export function PortfolioOverview({
   currency,
   rates,
 }: PortfolioOverviewProps) {
-  const convert = (amount: number) =>
-    convertAmount(amount, "USD", currency, rates);
+  const display = (amount: number) =>
+    formatConverted(amount, "USD", currency, rates, fmt);
 
+  // Chart values must be numeric. Convert only when a real USD→display rate
+  // exists; otherwise keep the native USD series (never fabricate a converted
+  // trend) and label it below.
+  const fx = convertAmount(1, "USD", currency, rates);
+  const fxRate = fx.available ? fx.amount : 1;
   const trendData = history.map((p) => ({
     label: p.date.slice(5),
-    equity: convert(p.equity),
+    equity: p.equity * fxRate,
   }));
 
-  const totalValue = convert(portfolio.equity);
+  const totalValue = display(portfolio.equity);
   const maxPosition = Math.max(
     ...portfolio.positions.map((p) => p.marketValue),
     1,
@@ -64,12 +72,18 @@ export function PortfolioOverview({
       {/* Hero metrics */}
       <div className="flex items-baseline gap-3">
         <span className="text-lg font-bold text-foreground tabular-nums">
-          {fmt(totalValue, currency)}
+          {totalValue}
         </span>
         <span className="text-[0.55rem] text-muted-foreground/50">
-          {fmt(convert(portfolio.cash), currency)} cash
+          {display(portfolio.cash)} cash
         </span>
       </div>
+
+      {trendData.length > 0 && !fx.available && (
+        <p className="text-[0.5rem] text-muted-foreground/50">
+          equity trend shown in USD — no {currency} rate
+        </p>
+      )}
 
       {/* Equity chart */}
       {trendData.length > 0 && (
@@ -132,7 +146,7 @@ export function PortfolioOverview({
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={workspacePageStyles.listValue}>
-                        {fmt(convert(p.marketValue), currency)}
+                        {display(p.marketValue)}
                       </span>
                       <span
                         className={`text-[0.5rem] tabular-nums w-10 text-right ${

@@ -98,6 +98,7 @@ export type CalendarEvent = {
   taskId?: string;
   sessionId?: string;
   tag?: string | null;
+  tagColor?: string | null;
   location?: string;
   description?: string;
   source?: "local" | "google-calendar" | "task" | string;

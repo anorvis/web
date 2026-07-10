@@ -146,3 +146,127 @@ describe("finance CSV import identity", () => {
     ).toEqual([expect.stringMatching(/-1$/), expect.stringMatching(/-2$/)]);
   });
 });
+
+describe("manual finance CSV mapping", () => {
+  it("uses required mappings and never treats absent or blank optional fields as column zero", () => {
+    const absentOptionalCsv = [
+      "Optional Sentinel,Booked On,Payee,Cents",
+      "BTC,2026-02-03,Subscription,-12.34",
+    ].join("\n");
+    const blankOptionalCsv = [
+      "Optional Sentinel,Booked On,Payee,Cents,Envelope,Ledger,Currency,Memo",
+      "BTC,2026-02-03,Subscription,-12.34,,,,",
+    ].join("\n");
+    const expectRequiredOnlyTransaction = (transactions: Transaction[]) => {
+      expect(transactions).toHaveLength(1);
+      expect(transactions[0]).toMatchObject({
+        date: "2026-02-03",
+        description: "Subscription",
+        amount: -12.34,
+        source: "manual",
+      });
+      expect(transactions[0].category).not.toBe("BTC");
+      expect(transactions[0].account).not.toBe("BTC");
+      expect(transactions[0].originalCurrency).not.toBe("BTC");
+      expect(transactions[0]).not.toHaveProperty("currency");
+      expect(transactions[0]).not.toHaveProperty("notes");
+    };
+
+    expectRequiredOnlyTransaction(
+      parseCSVManual(
+        absentOptionalCsv,
+        {
+          date: 1,
+          description: 2,
+          amount: 3,
+        },
+        "Fallback Checking",
+      ),
+    );
+    expectRequiredOnlyTransaction(
+      parseCSVManual(
+        blankOptionalCsv,
+        {
+          date: 1,
+          description: 2,
+          amount: 3,
+          category: 4,
+          account: 5,
+          currency: 6,
+          notes: 7,
+        },
+        "Fallback Checking",
+      ),
+    );
+  });
+
+  it("copies mapped category, account, currency, and notes values into normalized transactions", () => {
+    const csv = [
+      "Ignored,Posted,Merchant,Amount,Envelope,Ledger,Currency,Memo",
+      [
+        "skip-me",
+        "2026-02-04",
+        "FARMERS MARKET",
+        "-45.67",
+        "Groceries",
+        "Joint Visa",
+        "CAD",
+        "Saturday market",
+      ].join(","),
+    ].join("\n");
+
+    const transactions = parseCSVManual(
+      csv,
+      {
+        date: 1,
+        description: 2,
+        amount: 3,
+        category: 4,
+        account: 5,
+        currency: 6,
+        notes: 7,
+      },
+      "Fallback Checking",
+    );
+
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      date: "2026-02-04",
+      description: "FARMERS MARKET",
+      amount: -45.67,
+      category: "Groceries",
+      account: "Joint Visa",
+      source: "manual",
+      originalCurrency: "CAD",
+      currency: "CAD",
+      notes: "Saturday market",
+    });
+  });
+
+  it("omits invalid manual rows without disturbing valid duplicate occurrence suffixes", () => {
+    const csv = [
+      "Date,Merchant,Amount,Category",
+      "2026-02-05,COFFEE SHOP,-4.25,Food & Drink",
+      "2026-02-05,BROKEN ROW,not-a-number,Food & Drink",
+      "2026-02-05,COFFEE SHOP,-4.25,Food & Drink",
+    ].join("\n");
+
+    const transactions = parseCSVManual(csv, manualMapping, "Checking 0001");
+
+    expect(transactions).toHaveLength(2);
+    expect(transactions.map((transaction) => transaction.description)).toEqual([
+      "COFFEE SHOP",
+      "COFFEE SHOP",
+    ]);
+    expect(transactions.map((transaction) => transaction.amount)).toEqual([
+      -4.25, -4.25,
+    ]);
+    expect(transactions.map((transaction) => transaction.id)).toEqual([
+      expect.stringMatching(/-1$/),
+      expect.stringMatching(/-2$/),
+    ]);
+    expect(
+      transactions.map((transaction) => transaction.importFingerprint),
+    ).toEqual([expect.stringMatching(/-1$/), expect.stringMatching(/-2$/)]);
+  });
+});

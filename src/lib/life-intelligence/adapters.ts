@@ -5,6 +5,7 @@ import type {
 } from "@/types/workspace";
 import type {
   Account,
+  Category,
   Event,
   FinanceData,
   HealthData,
@@ -16,6 +17,7 @@ import type {
   Transaction,
   Workout,
 } from "./model";
+import { tagColorForName } from "./tag-color";
 
 type NativeHealthDashboard = {
   macroProfile: unknown | null;
@@ -36,7 +38,12 @@ type NativeHealthDashboard = {
     durationSeconds: number;
     exercises: Array<{
       title: string;
-      sets: Array<{ reps: number | null; weightKg: number | null }>;
+      sets: Array<{
+        reps: number | null;
+        weightKg: number | null;
+        durationSeconds?: number | null;
+        distanceMeters?: number | null;
+      }>;
     }>;
   }>;
 };
@@ -99,13 +106,13 @@ export function lifeFromSources(input: {
       ].filter((value): value is string => !!value),
     ),
   );
-  const tags = tagNames.map((name, index) => ({
+  const tags = tagNames.map((name) => ({
     id: name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, ""),
     name,
-    color: ["#60a5fa", "#34d399", "#f59e0b", "#f472b6", "#a78bfa"][index % 5],
+    color: tagColorForName(name),
   }));
   const tagId = (name?: string | null) =>
     name ? tags.find((tag) => tag.name === name)?.id : undefined;
@@ -219,6 +226,8 @@ export function healthFromDashboard(
       sets: exercise.sets.map((set) => ({
         reps: set.reps ?? undefined,
         weightKg: set.weightKg ?? undefined,
+        durationSeconds: set.durationSeconds ?? undefined,
+        distanceMeters: set.distanceMeters ?? undefined,
       })),
     })),
     createdAt,
@@ -279,29 +288,39 @@ export function financeFromPortfolio(
   };
 }
 
+function importedCategoryGroup(name: string): Category["group"] {
+  if (name === "income") return "income";
+  if (name === "transfer") return "transfers";
+  if (name === "loan payment") return "debt";
+  return "spending";
+}
+
 export function financeFromImportedTransactions(
   transactions: ImportedTransaction[],
   balance: number | null,
 ): FinanceData {
   const createdAt = nowIso();
-  const accountId = `csv-${slug(transactions[0]?.account ?? "import")}`;
+  const accountName = transactions[0]?.account ?? "csv import";
+  const accountCurrency = transactions[0]?.originalCurrency ?? "USD";
+  const accountId = `csv-${slug(accountName)}-${accountCurrency.toLowerCase()}`;
   const accounts: Account[] = [
     {
       id: accountId,
-      name: transactions[0]?.account ?? "csv import",
+      name: accountName,
       type: "checking",
-      currency: transactions[0]?.originalCurrency ?? "USD",
+      currency: accountCurrency,
       balance: balance ?? undefined,
       updatedAt: createdAt,
     },
   ];
   const categories = defaultCategories();
   const importedCategories = Array.from(
-    new Set(transactions.map((tx) => tx.category)),
+    new Set(transactions.map((transaction) => transaction.category)),
   ).map((name) => ({
     id: `csv-${slug(name)}`,
     name,
-    group: "spending" as const,
+    group: importedCategoryGroup(name),
+    excludeFromSpending: name === "transfer",
   }));
   const allCategories = [...categories, ...importedCategories];
   const modelTransactions: Transaction[] = transactions.map((tx) => ({
@@ -346,6 +365,19 @@ function defaultCategories() {
       name: "investing",
       group: "investing" as const,
       color: "#a78bfa",
+    },
+    {
+      id: "transfers",
+      name: "transfers",
+      group: "transfers" as const,
+      excludeFromSpending: true,
+      color: "#94a3b8",
+    },
+    {
+      id: "debt",
+      name: "debt payments",
+      group: "debt" as const,
+      color: "#f59e0b",
     },
   ];
 }

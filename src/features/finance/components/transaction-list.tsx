@@ -3,7 +3,7 @@
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useMemo, useState } from "react";
 import { transactionCategories } from "@/features/finance/config";
-import { convertAmount } from "@/features/finance/lib/currency";
+import { formatConverted } from "@/features/finance/lib/currency";
 import type {
   Currency,
   FxRates,
@@ -50,8 +50,8 @@ export function TransactionList({
     return result.sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, search, filterCategory]);
 
-  const convert = (t: Transaction) =>
-    convertAmount(t.amount, t.originalCurrency, currency, rates);
+  const display = (t: Transaction) =>
+    formatConverted(t.amount, t.originalCurrency, currency, rates, fmt);
 
   if (transactions.length === 0) {
     return (
@@ -133,7 +133,7 @@ export function TransactionList({
                 t.amount >= 0 ? "text-green-500" : "text-foreground"
               }`}
             >
-              {fmt(convert(t), currency)}
+              {display(t)}
             </span>
           </div>
         ))}

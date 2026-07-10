@@ -8,6 +8,7 @@ export type PlatformCalendarEvent = {
   tag?: string;
   source?: string;
   readOnly?: boolean;
+  allDay?: boolean;
 };
 
 export type TaskPlan = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { convertAmount } from "@/features/finance/lib/currency";
+import { formatConverted } from "@/features/finance/lib/currency";
 import type {
   Currency,
   FxRates,
@@ -69,8 +69,8 @@ export function SpendingCategories({
   rates,
   originalCurrency,
 }: SpendingCategoriesProps) {
-  const convert = (amount: number) =>
-    convertAmount(amount, originalCurrency, currency, rates);
+  const display = (amount: number) =>
+    formatConverted(amount, originalCurrency, currency, rates, fmt);
 
   const outflows = transactions.filter((t) => t.amount < 0);
   const byCategory = new Map<string, number>();
@@ -118,7 +118,7 @@ export function SpendingCategories({
               </span>
               <div className="flex items-center gap-1.5">
                 <span className={workspacePageStyles.listValue}>
-                  {fmt(convert(row.total), currency)}
+                  {display(row.total)}
                 </span>
                 {row.trend && (
                   <span className={`text-[0.5rem] ${trendColor}`}>

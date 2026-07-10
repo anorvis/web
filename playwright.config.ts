@@ -50,7 +50,6 @@ export default defineConfig({
         ANORVIS_OS_URL: e2eOsUrl,
         ANORVIS_OS_API_TOKEN: "e2e-token",
         NEXT_PUBLIC_ANORVIS_OS_URL: e2eOsUrl,
-        VERCEL_ENV: process.env.VERCEL_ENV ?? "development",
       },
     },
   ],

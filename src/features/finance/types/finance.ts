@@ -71,6 +71,9 @@ export type ColumnMapping = {
   description: number;
   amount: number;
   category?: number;
+  account?: number;
+  currency?: number;
+  notes?: number;
 };
 
 export type ScorePillar = {
@@ -120,6 +123,7 @@ export type AlpacaPortfolio = {
 
 export type PortfolioHistoryPoint = {
   date: string;
+  netWorth?: number;
   equity: number;
 };
 

@@ -1,4 +1,7 @@
-import { platformCalendarEventToUiEvent } from "@/features/life/lib/calendar-adapters";
+import {
+  platformCalendarEventToUiEvent,
+  platformCalendarEventToUiEvents,
+} from "@/features/life/lib/calendar-adapters";
 import {
   mergeTaskPlanIntoQueue,
   taskPlanToCalendarEvents,
@@ -15,6 +18,11 @@ import {
 } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
 import {
+  cachedLifeRead,
+  clearAfterLifeMutation,
+  clearLifeReadCache,
+} from "@/lib/life-intelligence/life-read-cache";
+import {
   requestBrowserLocalJson,
   shouldUseBrowserLocalBackend,
 } from "@/lib/local-backend-client";
@@ -27,43 +35,19 @@ type CalendarResponse = {
 type LocalCalendarResponse = {
   events: PlatformCalendarEvent[];
 };
-const LIFE_READ_CACHE_TTL_MS = 60_000;
-const lifeReadCache = new Map<
-  string,
-  { expiresAt: number; promise: Promise<unknown> }
->();
 
-export function clearLifeReadCache() {
-  lifeReadCache.clear();
-}
+export type LifeTag = {
+  id: string;
+  name: string;
+  color: string | null;
+  hidden: boolean;
+  system: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
-if (typeof window !== "undefined") {
-  window.addEventListener("anorvis:life-read-cache-invalidated", () => {
-    clearLifeReadCache();
-  });
-  window.addEventListener("anorvis:calendar-cache-invalidated", () => {
-    clearLifeReadCache();
-  });
-}
-
-function cachedLifeRead<T>(key: string, load: () => Promise<T>): Promise<T> {
-  const cached = lifeReadCache.get(key);
-  if (cached && cached.expiresAt > Date.now())
-    return cached.promise as Promise<T>;
-  const promise = load().catch((error) => {
-    lifeReadCache.delete(key);
-    throw error;
-  });
-  lifeReadCache.set(key, {
-    expiresAt: Date.now() + LIFE_READ_CACHE_TTL_MS,
-    promise,
-  });
-  return promise;
-}
-
-function clearAfterLifeMutation<T>(promise: Promise<T>): Promise<T> {
-  return promise.finally(clearLifeReadCache);
-}
+type LifeTagsResponse = { tags: LifeTag[] };
+type LifeTagResponse = { tag: LifeTag };
 
 export type CreateEventInput = {
   summary: string;
@@ -136,9 +120,9 @@ async function fetchBrowserLocalCalendarEvents(params: URLSearchParams) {
     ),
     fetchBrowserLocalTaskPlan(),
   ]);
-  const calendarEvents = response.events
-    .map(platformCalendarEventToUiEvent)
-    .filter((event): event is CalendarEvent => event !== null);
+  const calendarEvents = response.events.flatMap(
+    platformCalendarEventToUiEvents,
+  );
   return [
     ...calendarEvents,
     ...filterEventsByRange(taskPlanToCalendarEvents(taskPlan), params),
@@ -166,6 +150,66 @@ export function fetchCalendarEvents(params: URLSearchParams) {
       requestJson<CalendarResponse>(`/api/life/calendar?${params.toString()}`),
     ).then((response) => response.events);
   });
+}
+
+export function fetchLifeTags(): Promise<LifeTag[]> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<LifeTagsResponse>("/v1/life/tags").then(
+      (response) => response.tags,
+    );
+  }
+
+  return runEffect(requestJson<LifeTagsResponse>("/api/life/tags")).then(
+    (response) => response.tags,
+  );
+}
+
+export function saveLifeTag(input: {
+  name: string;
+  color?: string | null;
+}): Promise<LifeTag> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<LifeTagResponse>("/v1/life/tags", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }).then((response) => response.tag);
+  }
+
+  return runEffect(postJson<LifeTagResponse>("/api/life/tags", input)).then(
+    (response) => response.tag,
+  );
+}
+
+export function updateLifeTag(
+  id: string,
+  patch: { name?: string; color?: string | null; hidden?: boolean },
+): Promise<LifeTag> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<LifeTagResponse>(
+      `/v1/life/tags/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify(patch) },
+    ).then((response) => response.tag);
+  }
+
+  return runEffect(
+    requestJson<LifeTagResponse>(`/api/life/tags/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+  ).then((response) => response.tag);
+}
+
+export function hideLifeTag(id: string): Promise<LifeTag> {
+  if (shouldUseBrowserLocalBackend()) {
+    return requestBrowserLocalJson<LifeTagResponse>(
+      `/v1/life/tags/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ).then((response) => response.tag);
+  }
+
+  return runEffect(
+    deleteJson<LifeTagResponse>(`/api/life/tags/${encodeURIComponent(id)}`),
+  ).then((response) => response.tag);
 }
 
 export function createCalendarEvent(input: CreateEventInput) {

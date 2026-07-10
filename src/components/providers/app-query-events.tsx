@@ -68,6 +68,9 @@ function invalidateForEvent(queryClient: QueryClient, type: string) {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.health.dashboard(),
     });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.health.recipes(),
+    });
     void queryClient.invalidateQueries({ queryKey: queryKeys.overview() });
   }
 }

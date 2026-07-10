@@ -7,7 +7,13 @@ export const ProviderIdSchema = Schema.String.pipe(
 export const ProviderDefinitionInputSchema = Schema.Struct({
   id: ProviderIdSchema,
   displayName: Schema.NonEmptyString,
-  category: Schema.Literal("life", "library", "productivity", "health"),
+  category: Schema.Literal(
+    "life",
+    "library",
+    "productivity",
+    "health",
+    "finance",
+  ),
   capabilities: Schema.Array(Schema.NonEmptyString),
   authType: Schema.Literal("local", "oauth2", "token", "webhook"),
   enabled: Schema.optional(Schema.Boolean),

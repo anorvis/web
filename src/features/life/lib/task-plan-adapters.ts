@@ -116,9 +116,7 @@ export function taskPlanToPriorityQueue(
         title: task.title,
         source: "anorvis-os",
         dueAt,
-        dueContext: due
-          ? `by ${due.toLocaleDateString()}`
-          : "next 7 days",
+        dueContext: due ? `by ${due.toLocaleDateString()}` : "next 7 days",
         label: due
           ? due.getTime() < Date.now()
             ? "overdue"

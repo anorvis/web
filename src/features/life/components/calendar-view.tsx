@@ -42,7 +42,7 @@ import { CalendarFrame } from "./calendar-frame";
 export type CalendarMode = "day" | "week" | "month";
 const CALENDAR_STALE_TIME_MS = 15 * 60_000;
 const CALENDAR_GC_TIME_MS = 24 * 60 * 60_000;
-const CALENDAR_PREFETCH_MONTH_RADIUS = 2;
+const CALENDAR_PREFETCH_RADIUS = 2;
 
 function eventInView(
   event: CalendarEvent,
@@ -151,38 +151,37 @@ function useCalendarViewContent({
       queryClient.invalidateQueries({ queryKey: queryKeys.life.tasks() });
     },
   });
-  const isToday = isSameDate(selectedDate, todayRef.current);
+  const viewDate =
+    selectedDate.getTime() === 0 ? todayRef.current : selectedDate;
+  const isToday = isSameDate(viewDate, todayRef.current);
   const fallbackCalendarData = isHydrated
-    ? cachedCalendarData(queryClient, mode, selectedDate)
+    ? cachedCalendarData(queryClient, mode, viewDate)
     : null;
 
   const usesModelEvents = modelEvents !== undefined;
-  const isRealDate = selectedDate.getTime() !== 0;
+  const isRealDate = viewDate.getTime() !== 0;
   const calendarQuery = useQuery({
-    queryKey: calendarQueryKey(mode, selectedDate),
-    queryFn: () => fetchAndCacheCalendarRange(queryClient, selectedDate, mode),
+    queryKey: calendarQueryKey(mode, viewDate),
+    queryFn: () => fetchAndCacheCalendarRange(queryClient, viewDate, mode),
     enabled: hasCalendar && !usesModelEvents && isHydrated && isRealDate,
     staleTime: CALENDAR_STALE_TIME_MS,
     gcTime: CALENDAR_GC_TIME_MS,
-    refetchOnMount: false,
     placeholderData: fallbackCalendarData ?? undefined,
-    initialData: fallbackCalendarData ?? undefined,
-    initialDataUpdatedAt: fallbackCalendarData ? 0 : undefined,
   });
 
   const events = useMemo(
     () =>
       (modelEvents ?? calendarQuery.data ?? [])
-        .filter((event) => eventInView(event, mode, selectedDate))
+        .filter((event) => eventInView(event, mode, viewDate))
         .map((event) => optimisticMoves.get(event.id) ?? event),
-    [calendarQuery.data, mode, modelEvents, optimisticMoves, selectedDate],
+    [calendarQuery.data, mode, modelEvents, optimisticMoves, viewDate],
   );
   const fetchError =
     !usesModelEvents && calendarQuery.isError ? "couldn't load events" : null;
 
   const prefetchView = useCallback(
     (date: Date, viewMode: CalendarMode) => {
-      if (!hasCalendar || usesModelEvents) return;
+      if (!hasCalendar) return;
       queryClient.prefetchQuery({
         queryKey: calendarQueryKey(viewMode, date),
         queryFn: () => fetchAndCacheCalendarRange(queryClient, date, viewMode),
@@ -190,40 +189,45 @@ function useCalendarViewContent({
         gcTime: CALENDAR_GC_TIME_MS,
       });
     },
-    [hasCalendar, queryClient, usesModelEvents],
+    [hasCalendar, queryClient],
   );
 
   const prefetchWindow = useCallback(
     (date: Date, viewMode: CalendarMode) => {
-      if (!hasCalendar || usesModelEvents) return;
-
-      prefetchView(date, viewMode);
-      if (viewMode !== "month") {
-        prefetchView(date, "month");
-      }
+      if (!hasCalendar) return;
 
       for (
-        let offset = -CALENDAR_PREFETCH_MONTH_RADIUS;
-        offset <= CALENDAR_PREFETCH_MONTH_RADIUS;
+        let offset = -CALENDAR_PREFETCH_RADIUS;
+        offset <= CALENDAR_PREFETCH_RADIUS;
         offset += 1
       ) {
-        if (offset === 0) continue;
-        prefetchView(
-          new Date(date.getFullYear(), date.getMonth() + offset, 1),
-          "month",
-        );
+        prefetchView(shiftCalendarDate(date, viewMode, offset), viewMode);
+      }
+
+      if (viewMode !== "month") {
+        for (
+          let offset = -CALENDAR_PREFETCH_RADIUS;
+          offset <= CALENDAR_PREFETCH_RADIUS;
+          offset += 1
+        ) {
+          prefetchView(
+            new Date(date.getFullYear(), date.getMonth() + offset, 1),
+            "month",
+          );
+        }
       }
     },
-    [hasCalendar, prefetchView, usesModelEvents],
+    [hasCalendar, prefetchView],
   );
 
   useMountEffect(() => {
     setIsHydrated(true);
-    prefetchWindow(selectedDate, mode);
+    const timer = window.setTimeout(() => prefetchWindow(viewDate, mode), 500);
+    return () => window.clearTimeout(timer);
   });
 
   const navigate = (delta: number) => {
-    const next = new Date(selectedDate);
+    const next = new Date(viewDate);
     if (mode === "day") next.setDate(next.getDate() + delta);
     else if (mode === "week") next.setDate(next.getDate() + delta * 7);
     else next.setMonth(next.getMonth() + delta);
@@ -251,9 +255,9 @@ function useCalendarViewContent({
     (colKey: string, minute: number) => {
       let date: Date;
       if (colKey === "day-0") {
-        date = selectedDate;
+        date = viewDate;
       } else {
-        const weekStart = getWeekStart(selectedDate);
+        const weekStart = getWeekStart(viewDate);
         const dayIdx = DAY_KEYS.indexOf(colKey);
         date = new Date(weekStart);
         date.setDate(date.getDate() + (dayIdx >= 0 ? dayIdx : 0));
@@ -263,7 +267,7 @@ function useCalendarViewContent({
       const endTime = minuteToTime(endMin);
       setAddEvent({ date, startTime, endTime });
     },
-    [selectedDate, setAddEvent],
+    [viewDate, setAddEvent],
   );
 
   const handleEventClick = useCallback(
@@ -287,14 +291,14 @@ function useCalendarViewContent({
 
   const dateForColumn = useCallback(
     (colKey: string) => {
-      if (colKey === "day-0") return selectedDate;
-      const weekStart = getWeekStart(selectedDate);
+      if (colKey === "day-0") return viewDate;
+      const weekStart = getWeekStart(viewDate);
       const dayIdx = DAY_KEYS.indexOf(colKey);
       const date = new Date(weekStart);
       date.setDate(date.getDate() + (dayIdx >= 0 ? dayIdx : 0));
       return date;
     },
-    [selectedDate],
+    [viewDate],
   );
 
   const handleEventMove = useCallback(
@@ -389,7 +393,7 @@ function useCalendarViewContent({
   const weekColumns = useMemo(() => groupByDay(events), [events]);
 
   const isCurrentWeek = isSameDate(
-    getWeekStart(selectedDate),
+    getWeekStart(viewDate),
     getWeekStart(todayRef.current),
   );
   const todayDayIdx = todayRef.current.getDay();
@@ -400,14 +404,14 @@ function useCalendarViewContent({
         ? "day-0"
         : undefined;
 
-  const scrollKey = `${mode}-${mode === "day" ? toDateString(selectedDate) : toWeekKey(selectedDate)}`;
+  const scrollKey = `${mode}-${mode === "day" ? toDateString(viewDate) : toWeekKey(viewDate)}`;
 
   const navLabel =
     mode === "day"
-      ? formatDateLabel(selectedDate)
+      ? formatDateLabel(viewDate)
       : mode === "week"
-        ? formatWeekLabel(selectedDate)
-        : formatMonthLabel(selectedDate);
+        ? formatWeekLabel(viewDate)
+        : formatMonthLabel(viewDate);
 
   if (!hasCalendar) {
     return (
@@ -421,7 +425,7 @@ function useCalendarViewContent({
   return (
     <CalendarFrame
       mode={mode}
-      selectedDate={selectedDate}
+      selectedDate={viewDate}
       today={todayRef.current}
       isToday={isToday}
       isFullscreen={isFullscreen}
@@ -438,7 +442,7 @@ function useCalendarViewContent({
       onNavigate={navigate}
       onModeChange={(newMode) => {
         setMode(newMode);
-        prefetchWindow(selectedDate, newMode);
+        prefetchWindow(viewDate, newMode);
       }}
       onToggleFullscreen={() => setCalendarFullscreen(!isFullscreen)}
       onSlotClick={handleSlotClick}
@@ -448,6 +452,14 @@ function useCalendarViewContent({
       onTaskDialogOpenChange={(open) => !open && setDetailTask(null)}
     />
   );
+}
+
+function shiftCalendarDate(date: Date, mode: CalendarMode, offset: number) {
+  const shifted = new Date(date);
+  if (mode === "day") shifted.setDate(shifted.getDate() + offset);
+  else if (mode === "week") shifted.setDate(shifted.getDate() + offset * 7);
+  else shifted.setMonth(shifted.getMonth() + offset);
+  return shifted;
 }
 
 function cachedCalendarData(
