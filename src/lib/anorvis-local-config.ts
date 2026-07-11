@@ -17,7 +17,7 @@ function getDefaultGatewayTokenPath(): string {
   );
 }
 
-export function resolveAnorvisGatewayToken(): string {
+export function resolveAnorvisGatewayToken(): string | null {
   const envToken = process.env.ANORVIS_OS_API_TOKEN?.trim();
   if (envToken) {
     return envToken;
@@ -25,8 +25,12 @@ export function resolveAnorvisGatewayToken(): string {
 
   const path = getDefaultGatewayTokenPath();
   if (!existsSync(path)) {
+    const hostname = new URL(resolveAnorvisGatewayBaseUrl()).hostname;
+    if (["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname)) {
+      return null;
+    }
     throw new Error(
-      `Anorvis gateway token file is missing: ${path}. Start anorvis-os once to generate it, or set ANORVIS_OS_API_TOKEN.`,
+      `Anorvis gateway token file is missing: ${path}. Set ANORVIS_OS_API_TOKEN for a non-loopback gateway.`,
     );
   }
 
