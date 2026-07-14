@@ -4,13 +4,6 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { decodeUnknownResult } from "@/lib/effect/schema";
-import {
-  checkBrowserLocalBackendToken,
-  ensureBrowserLocalBackendToken,
-  getStoredBrowserLocalBackendToken,
-  resolveBrowserLocalBackendUrl,
-  shouldUseBrowserLocalBackend,
-} from "@/lib/local-backend-client";
 import { queryKeys } from "@/lib/query/keys";
 
 const StreamEventSchema = Schema.Struct({
@@ -80,14 +73,6 @@ function parseEvent(message: MessageEvent<string>): StreamEvent | null {
   return decoded.ok ? decoded.value : null;
 }
 
-function eventSourceUrl(token?: string) {
-  if (!shouldUseBrowserLocalBackend()) return "/api/events";
-  if (!token) return null;
-  const url = new URL("/v1/events", resolveBrowserLocalBackendUrl());
-  url.searchParams.set("access_token", token);
-  return url.toString();
-}
-
 export function AppQueryEvents() {
   const queryClient = useQueryClient();
 
@@ -95,7 +80,6 @@ export function AppQueryEvents() {
     let closed = false;
     let events: EventSource | null = null;
     let reconnectTimer: number | null = null;
-    let browserLocalAuthStale = false;
     const handleMessage = (message: MessageEvent<string>) => {
       const event = parseEvent(message);
       invalidateForEvent(queryClient, event?.type ?? message.type);
@@ -110,63 +94,26 @@ export function AppQueryEvents() {
       events = null;
     };
 
-    const reconnectBrowserLocalEvents = () => {
-      if (
-        closed ||
-        !shouldUseBrowserLocalBackend() ||
-        reconnectTimer != null ||
-        browserLocalAuthStale
-      ) {
-        return;
-      }
+    const reconnectEvents = () => {
+      if (closed || reconnectTimer != null) return;
       closeEvents();
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
-        void verifyBrowserLocalAuthAndReopen();
+        openEvents();
       }, 1_000);
     };
 
-    const verifyBrowserLocalAuthAndReopen = async () => {
-      const token = getStoredBrowserLocalBackendToken();
-      if (token) {
-        const tokenAccepted = await checkBrowserLocalBackendToken(token).catch(
-          () => true,
-        );
-        if (!tokenAccepted) {
-          browserLocalAuthStale = true;
-          window.dispatchEvent(
-            new CustomEvent("anorvis:local-backend-auth-stale"),
-          );
-          return;
-        }
-      }
-      await openEvents();
-    };
-
-    const openEvents = async () => {
-      let token: string | undefined;
-      try {
-        token = shouldUseBrowserLocalBackend()
-          ? await ensureBrowserLocalBackendToken()
-          : undefined;
-      } catch {
-        browserLocalAuthStale = true;
-        window.dispatchEvent(
-          new CustomEvent("anorvis:local-backend-auth-stale"),
-        );
-        return;
-      }
-      const url = eventSourceUrl(token);
-      if (closed || !url) return;
+    const openEvents = () => {
+      if (closed) return;
       closeEvents();
-      events = new EventSource(url);
-      events.onerror = reconnectBrowserLocalEvents;
+      events = new EventSource("/api/events");
+      events.onerror = reconnectEvents;
       for (const type of EVENT_TYPES) {
         events.addEventListener(type, handleMessage);
       }
     };
 
-    void openEvents();
+    openEvents();
 
     return () => {
       closed = true;

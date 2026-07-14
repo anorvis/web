@@ -106,9 +106,9 @@ export function FinanceDashboard() {
     [dashboardQuery.data],
   );
 
-  // Net-worth history is pre-aggregated and FX-converted by anorvis-os. The
-  // legacy `equity` field is retained as a compatibility alias for older OS
-  // responses; the browser does not recompute or convert it.
+  // Convex retains canonical amounts in each record's source currency. The
+  // selected reporting currency filters views; the browser never silently
+  // combines unlike currencies.
   const history = useMemo(
     () =>
       (dashboardQuery.data?.history ?? []).map((point) => ({
@@ -323,7 +323,7 @@ export function FinanceDashboard() {
         bodyClassName="pb-0"
         onOpenChange={closeModal}
         title="investments"
-        description={`Positions and market values converted by anorvis-os into ${reportingCurrency}.`}
+        description={`Positions and market values recorded in ${reportingCurrency}.`}
       >
         {loading ? (
           <Skeleton className="h-40 rounded-none" />

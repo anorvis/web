@@ -129,7 +129,7 @@ export function FinanceFlowDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={kind}
-      description={`Posted ${kind} converted by anorvis-os into ${reportingCurrency}, month by month. Pending activity, transfers, and investing are excluded.`}
+      description={`Posted ${kind} recorded in ${reportingCurrency}, month by month. Pending activity, transfers, and investing are excluded.`}
     >
       {finance.transactions.length === 0 ? (
         <EmptyState

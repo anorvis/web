@@ -27,6 +27,8 @@ import {
 import { EmptyTaskText } from "@/features/life/components/task-row";
 import { useInspirationStore } from "@/features/life/stores/inspiration-store";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import type { CalendarEvent, LifeSnapshot } from "@/types/workspace";
 
 function minutesLabel(minutes: number) {
@@ -331,26 +333,13 @@ export function InspirationPanel() {
   const boardImagesQuery = useQuery({
     queryKey: ["life", "pinterest", "board-images", config?.boardUrl],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        boardUrl: config?.boardUrl ?? "",
-        maxResults: "50",
-      });
-      const response = await fetch(
-        `/api/integrations/pinterest/board-images?${params.toString()}`,
-      );
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: unknown;
-        } | null;
-        throw new Error(
-          typeof payload?.error === "string"
-            ? payload.error
-            : "Could not load Pinterest board images.",
-        );
-      }
-      const payload = (await response.json()) as {
-        images?: Array<{ imageUrl?: unknown }>;
-      };
+      const payload = (await convexClient.action(
+        convexApi.pinterest.boardImages,
+        {
+          boardUrl: config?.boardUrl ?? "",
+          maxResults: 50,
+        },
+      )) as { images?: Array<{ imageUrl?: unknown }> };
       return (payload.images ?? [])
         .map((image) => image.imageUrl)
         .filter((url): url is string => typeof url === "string");

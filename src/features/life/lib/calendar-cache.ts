@@ -1,3 +1,4 @@
+import { fetchCalendarEvents } from "@/features/life/api/life";
 import type { CalendarEvent } from "@/types/workspace";
 import { calendarRangeParams } from "./calendar-query";
 import { toDateString, toMonthKey, toWeekKey } from "./calendar-utils";
@@ -61,14 +62,7 @@ export const monthCache = createCache<CalendarEvent[]>();
 
 // ── Fetchers ────────────────────────────────────
 
-async function fetchCalendar(
-  params: URLSearchParams,
-): Promise<CalendarEvent[]> {
-  const res = await fetch(`/api/life/calendar?${params.toString()}`);
-  if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`);
-  const data = await res.json();
-  return data.events ?? [];
-}
+const fetchCalendar = fetchCalendarEvents;
 
 export async function fetchDay(date: Date): Promise<CalendarEvent[]> {
   return fetchCalendar(calendarRangeParams(date, "day"));

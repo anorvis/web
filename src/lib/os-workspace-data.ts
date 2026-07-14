@@ -1,7 +1,8 @@
 import "server-only";
 import { Schema } from "effect";
 
-import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import { decodeUnknownResult } from "@/lib/effect/schema";
 
 export type MemoryDocument = {
@@ -23,9 +24,8 @@ type WorkspaceMemoryKind =
   | "preference";
 
 const JsonBodySchema = Schema.parseJson(Schema.Unknown);
-
-function encodeSegment(value: string): string {
-  return encodeURIComponent(value);
+function workspaceDocumentPath(kind: WorkspaceMemoryKind, id: string): string {
+  return `workspace/${kind}/${id}`;
 }
 
 function parseJsonBody(body: string): unknown | null {
@@ -39,10 +39,13 @@ export async function readWorkspaceDocument<T>(input: {
   isValue: JsonGuard<T>;
 }): Promise<T | null> {
   try {
-    const document = await gatewayFetchJson<MemoryDocument>(
-      `/v1/memory/documents/${encodeSegment(input.kind)}/${encodeSegment(input.id)}`,
-    );
-    const value = parseJsonBody(document.body);
+    const page = (await convexClient.query(convexApi.wiki.get, {
+      path: workspaceDocumentPath(input.kind, input.id),
+    })) as { revision?: { markdown?: unknown } | null } | null;
+    const revision = page?.revision ?? null;
+    const body =
+      typeof revision?.markdown === "string" ? revision.markdown : "";
+    const value = parseJsonBody(body);
     return input.isValue(value) ? value : null;
   } catch {
     return null;
@@ -55,24 +58,24 @@ export async function writeWorkspaceDocument(input: {
   title: string;
   value: Record<string, unknown>;
 }): Promise<MemoryDocument> {
-  return gatewayFetchJson<MemoryDocument>("/v1/memory/documents", {
-    method: "POST",
-    body: JSON.stringify({
-      kind: input.kind,
-      id: input.id,
-      title: input.title,
-      body: JSON.stringify(input.value, null, 2),
-      provenance: [
-        {
-          source: "web-app",
-          author: "web-app",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    }),
+  const body = JSON.stringify(input.value, null, 2);
+  const now = new Date().toISOString();
+  await convexClient.mutation(convexApi.wiki.save, {
+    path: workspaceDocumentPath(input.kind, input.id),
+    title: input.title,
+    markdown: body,
+    authorKind: "user",
+    summary: "Saved from web workspace document API.",
   });
+  return {
+    id: input.id,
+    kind: input.kind,
+    title: input.title,
+    body,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
-
 export function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }

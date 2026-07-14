@@ -14,12 +14,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { WorkspaceCard } from "@/components/layout/workspace";
 import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
+import type { HevySyncSummary } from "@/features/health/api/health";
 import {
-  fetchHevySettings,
-  type HevySyncSummary,
-  saveHevySettings as saveHevyConnectionSettings,
-  syncHevy as syncHevyWorkouts,
-} from "@/features/health/api/health";
+  fetchIntegrationSettings,
+  postIntegrationAction,
+  saveIntegrationSettings,
+  startGoogleOAuth,
+} from "@/features/integrations/api/integrations";
 import { clearLifeReadCache } from "@/lib/life-intelligence/life-read-cache";
 import { queryKeys } from "@/lib/query/keys";
 
@@ -218,15 +219,18 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
 
   const refreshGoogleCredentialState = async () => {
     if (!hasGoogleSource) return;
-    const settings = (await fetch("/api/integrations/google/settings")
-      .then((response) => (response.ok ? response.json() : null))
-      .catch(() => null)) as { hasClientConfig?: boolean } | null;
+    const settings = await fetchIntegrationSettings<{
+      hasClientConfig?: boolean;
+    }>("/api/integrations/google/settings").catch(() => null);
     setGoogleCanConnect(Boolean(settings?.hasClientConfig));
   };
 
   const refreshHevyCredentialState = async () => {
     if (!hasHevySource) return;
-    const settings = await fetchHevySettings().catch(() => null);
+    const settings = await fetchIntegrationSettings<{
+      connected?: boolean;
+      hasApiKey?: boolean;
+    }>("/api/integrations/hevy/settings").catch(() => null);
     setHevyConnected(Boolean(settings?.connected || settings?.hasApiKey));
   };
 
@@ -251,21 +255,12 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
     setGoogleSaving(true);
     setGoogleMessage(null);
     try {
-      const response = await fetch("/api/integrations/google/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: googleClientId,
-          clientSecret: googleClientSecret,
-        }),
+      const data = await startGoogleOAuth({
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+        returnTo: `${window.location.origin}/life`,
       });
-      if (!response.ok) throw new Error(await response.text());
-      setGoogleCanConnect(true);
-      setGoogleClientId("");
-      setGoogleClientSecret("");
-      setGoogleMessage(
-        "OAuth client saved securely. Continue with Google sign-in.",
-      );
+      window.location.assign(data.authorizationUrl);
     } catch {
       setGoogleMessage("couldn't save Google OAuth client");
     } finally {
@@ -277,8 +272,12 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
     setHevySaving(true);
     setHevyMessage(null);
     try {
-      await saveHevyConnectionSettings(hevyApiKey);
-      const syncResult = await syncHevyWorkouts();
+      await saveIntegrationSettings("/api/integrations/hevy/settings", {
+        apiKey: hevyApiKey,
+      });
+      const syncResult = await postIntegrationAction<HevySyncSummary>(
+        "/api/integrations/hevy/sync",
+      );
       clearLifeReadCache();
       setHevyConnected(true);
       setHevyApiKey("");
@@ -301,7 +300,9 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
     setHevySaving(true);
     setHevyMessage(null);
     try {
-      const syncResult = await syncHevyWorkouts();
+      const syncResult = await postIntegrationAction<HevySyncSummary>(
+        "/api/integrations/hevy/sync",
+      );
       clearLifeReadCache();
       setHevyMessage(
         `synced ${syncResult.fetched} workouts (${syncResult.created} new, ${syncResult.updated} updated) · ${hevyMeasurementSummary(syncResult)}`,
@@ -561,27 +562,17 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
                   back
                 </button>
                 {configuringSource.label === "google calendar" && (
-                  <>
-                    <button
-                      type="submit"
-                      className={workspacePageStyles.modalButton}
-                      disabled={
-                        googleSaving ||
-                        !googleClientId.trim() ||
-                        !googleClientSecret.trim()
-                      }
-                    >
-                      {googleSaving ? "..." : "save keys"}
-                    </button>
-                    {googleCanConnect && (
-                      <a
-                        className={workspacePageStyles.modalButton}
-                        href="/api/integrations/connect?provider=google&next=/life"
-                      >
-                        sign in
-                      </a>
-                    )}
-                  </>
+                  <button
+                    type="submit"
+                    className={workspacePageStyles.modalButton}
+                    disabled={
+                      googleSaving ||
+                      !googleClientId.trim() ||
+                      !googleClientSecret.trim()
+                    }
+                  >
+                    {googleSaving ? "..." : "save keys"}
+                  </button>
                 )}
                 {configuringSource.label === "hevy" && (
                   <>
@@ -619,8 +610,7 @@ const GOOGLE_CALENDAR_API_URL =
   "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com";
 const GOOGLE_CREDENTIALS_URL =
   "https://console.cloud.google.com/apis/credentials";
-const GOOGLE_CALLBACK_URL =
-  "http://127.0.0.1:8787/v1/integrations/google/auth/callback";
+const GOOGLE_CALLBACK_URL = `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "http://127.0.0.1:3211"}/oauth/google/callback`;
 
 const googleSetupSteps: SourceStep[] = [
   {
@@ -636,12 +626,12 @@ const googleSetupSteps: SourceStep[] = [
     hrefLabel: "open Google Credentials",
   },
   {
-    title: "Whitelist the gateway callback",
-    body: `Add ${GOOGLE_CALLBACK_URL} as an authorized redirect URI. If ANORVIS_OS_URL uses a different gateway origin, keep the same path and replace only the origin.`,
+    title: "Whitelist the Convex callback",
+    body: `Add ${GOOGLE_CALLBACK_URL} as an authorized redirect URI. If NEXT_PUBLIC_CONVEX_SITE_URL uses a different Convex site origin, keep the same path and replace only the origin.`,
   },
   {
     title: "Save and sign in",
-    body: "Paste the client ID and client secret here, save them through anorvis-os, then sign in.",
+    body: "Paste the client ID and client secret here. Anorvis stores them in Convex, then opens Google sign-in.",
   },
 ];
 
@@ -654,7 +644,7 @@ const hevySetupSteps: SourceStep[] = [
   },
   {
     title: "Paste it here",
-    body: "Save the key in this modal. Anorvis stores it through the local OS secret manager.",
+    body: "Save the key in this modal. Anorvis stores it in Convex.",
   },
   {
     title: "Sync health data",
@@ -667,7 +657,6 @@ const sourceOptions = {
     {
       label: "google calendar",
       description: "",
-      href: "/api/integrations/connect?provider=google&next=/life",
       action: "connect",
       steps: googleSetupSteps,
     },
@@ -679,54 +668,6 @@ const sourceOptions = {
       href: "https://hevy.com/settings",
       action: "open Hevy settings",
       steps: hevySetupSteps,
-    },
-    {
-      label: "fatsecret",
-      description: "API credentials for global food search and macro lookup",
-      href: "/integrations",
-      action: "open integrations",
-      steps: [
-        {
-          title: "Create a FatSecret app",
-          body: "Create an API application in the FatSecret Platform dashboard.",
-          href: "https://platform.fatsecret.com",
-          hrefLabel: "open FatSecret Platform",
-        },
-        {
-          title: "Copy credentials",
-          body: "Copy the client ID and client secret.",
-        },
-        {
-          title: "Save credentials",
-          body: "Open integrations, choose FatSecret, save credentials, then use food search.",
-          href: "/integrations",
-          hrefLabel: "open integrations",
-        },
-      ],
-    },
-    {
-      label: "nutritionix",
-      description: "API credentials for branded/common food search",
-      href: "/integrations",
-      action: "open integrations",
-      steps: [
-        {
-          title: "Create a Nutritionix app",
-          body: "Create an app in the Nutritionix developer portal.",
-          href: "https://developer.nutritionix.com",
-          hrefLabel: "open Nutritionix developer portal",
-        },
-        {
-          title: "Copy credentials",
-          body: "Copy the application ID and API key.",
-        },
-        {
-          title: "Save credentials",
-          body: "Open integrations, choose Nutritionix, save credentials, then use food search.",
-          href: "/integrations",
-          hrefLabel: "open integrations",
-        },
-      ],
     },
   ],
   finance: [

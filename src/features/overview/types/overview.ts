@@ -42,7 +42,7 @@ export type IntegrationCatalogStatus =
 export type IntegrationCatalogEntry = {
   id: string;
   displayName: string;
-  category: "life" | "library" | "productivity" | "health";
+  category: "life" | "library" | "productivity" | "health" | "finance";
   description: string;
   capabilities: string[];
   authType: "local" | "oauth2" | "token" | "webhook";

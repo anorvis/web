@@ -368,7 +368,7 @@ export function FinanceNetWorthDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="net worth & balances"
-      description={`Tracked balances converted by anorvis-os into ${reportingCurrency}. Assets and liabilities remain separate.`}
+      description={`Tracked balances recorded in ${reportingCurrency}. Assets and liabilities remain separate.`}
     >
       {loading ? (
         <Skeleton className="h-40 rounded-none" />

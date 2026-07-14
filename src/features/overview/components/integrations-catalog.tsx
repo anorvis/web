@@ -48,9 +48,7 @@ export function IntegrationsCatalog() {
             connected surfaces
           </h2>
         </div>
-        <p className={workspacePageStyles.catalogMeta}>
-          sourced from anorvis-os
-        </p>
+        <p className={workspacePageStyles.catalogMeta}>sourced from Convex</p>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <input

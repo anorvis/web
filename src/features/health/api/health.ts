@@ -9,28 +9,64 @@ import type {
   ExerciseStats,
   WorkoutSummary,
 } from "@/features/health/types/health";
-import type { NativeHealthDashboard } from "@/features/health/types/native-health";
-import type { FoodSearchResult } from "@/features/health/utils/forms";
-import { deleteJson, postJson, requestJson } from "@/lib/effect/http";
-import { runEffect } from "@/lib/effect/runtime";
+import type {
+  NativeHealthDashboard,
+  NativeMacroProfile,
+  NativeMeal,
+  NativeMeasurement,
+  NativeWorkout,
+} from "@/features/health/types/native-health";
+import type {
+  ExerciseSearchResult,
+  FoodSearchResult,
+} from "@/features/health/utils/forms";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import { decodeUnknownResult } from "@/lib/effect/schema";
-import {
-  requestBrowserLocalJson,
-  shouldUseBrowserLocalBackend,
-} from "@/lib/local-backend-client";
+
+type ConvexRecord = Record<string, unknown>;
+
+type HevyActionSettings = HevyConnectionSettings & { connected?: boolean };
+
+function stringId(value: ConvexRecord): string {
+  return String(value._id ?? value.id ?? "");
+}
+
+function isoFromMillis(value: unknown): string {
+  const millis =
+    typeof value === "number" && Number.isFinite(value) ? value : Date.now();
+  return new Date(millis).toISOString();
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function arrayOfRecords(value: unknown): ConvexRecord[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is ConvexRecord =>
+          typeof item === "object" && item !== null && !Array.isArray(item),
+      )
+    : [];
+}
 
 function mealBodyFromForm(formData: FormData) {
   const body = Object.fromEntries(formData.entries());
   return {
     name: String(body.name || "meal"),
     mealType: String(body.mealType || "meal"),
-    loggedAt: String(body.loggedAt || new Date().toISOString()),
+    loggedAt: Date.parse(String(body.loggedAt || new Date().toISOString())),
     calories: Number(body.calories) || 0,
     proteinGrams: Number(body.proteinGrams) || 0,
     carbsGrams: Number(body.carbsGrams) || 0,
     fatGrams: Number(body.fatGrams) || 0,
-    source: "manual",
-    notes: body.notes ? String(body.notes) : null,
+    source: "manual" as const,
+    notes: body.notes ? String(body.notes) : undefined,
   };
 }
 
@@ -80,26 +116,59 @@ function macroProfileBodyFromForm(formData: FormData) {
         4,
     ),
   );
-  const targetCalories =
-    positiveNumber(body.targetCalories) ?? calculatedTargetCalories;
-  const proteinGrams =
-    positiveNumber(body.proteinGrams) ?? calculatedProteinGrams;
-  const fatGrams = positiveNumber(body.fatGrams) ?? calculatedFatGrams;
-  const carbsGrams = positiveNumber(body.carbsGrams) ?? calculatedCarbsGrams;
   return {
     goal,
     sex,
     age,
     heightCm,
     weightKg,
-    bodyFatPercent: body.bodyFatPercent ? Number(body.bodyFatPercent) : null,
+    bodyFatPercent: body.bodyFatPercent
+      ? Number(body.bodyFatPercent)
+      : undefined,
     activityLevel: activity,
-    birthdate: typeof body.birthdate === "string" ? body.birthdate : null,
+    birthdate: typeof body.birthdate === "string" ? body.birthdate : undefined,
     trainingDaysPerWeek: Number(body.trainingDaysPerWeek) || 3,
-    targetCalories,
-    proteinGrams,
-    carbsGrams,
-    fatGrams,
+    targetCalories:
+      positiveNumber(body.targetCalories) ?? calculatedTargetCalories,
+    proteinGrams: positiveNumber(body.proteinGrams) ?? calculatedProteinGrams,
+    carbsGrams: positiveNumber(body.carbsGrams) ?? calculatedCarbsGrams,
+    fatGrams: positiveNumber(body.fatGrams) ?? calculatedFatGrams,
+  };
+}
+
+function measurementBodyFromForm(formData: FormData) {
+  const body = Object.fromEntries(formData.entries());
+  const measurementFields = [
+    "weightKg",
+    "leanMassKg",
+    "bodyFatPercent",
+    "heightCm",
+    "neckCm",
+    "shoulderCm",
+    "chestCm",
+    "leftBicepCm",
+    "rightBicepCm",
+    "leftForearmCm",
+    "rightForearmCm",
+    "abdomenCm",
+    "waistCm",
+    "hipsCm",
+    "leftThighCm",
+    "rightThighCm",
+    "leftCalfCm",
+    "rightCalfCm",
+  ] as const;
+  return {
+    recordedAt: Date.parse(String(body.recordedAt || new Date().toISOString())),
+    source: "manual" as const,
+    ...Object.fromEntries(
+      measurementFields.map((field) => [
+        field,
+        body[field] === undefined || body[field] === ""
+          ? undefined
+          : Number(body[field]),
+      ]),
+    ),
   };
 }
 
@@ -123,8 +192,8 @@ function parseWorkoutExercises(value: unknown) {
           setType: "normal",
           weightKg: setRecord.value.weightKg
             ? Number(setRecord.value.weightKg)
-            : null,
-          reps: setRecord.value.reps ? Number(setRecord.value.reps) : null,
+            : undefined,
+          reps: setRecord.value.reps ? Number(setRecord.value.reps) : undefined,
         },
       ];
     });
@@ -138,8 +207,8 @@ function parseWorkoutExercises(value: unknown) {
                 setType: "normal",
                 weightKg: record.value.weightKg
                   ? Number(record.value.weightKg)
-                  : null,
-                reps: record.value.reps ? Number(record.value.reps) : null,
+                  : undefined,
+                reps: record.value.reps ? Number(record.value.reps) : undefined,
               },
             ],
       },
@@ -151,97 +220,248 @@ function workoutBodyFromForm(formData: FormData) {
   const body = Object.fromEntries(formData.entries());
   return {
     title: String(body.title || "workout"),
-    startedAt: String(body.startedAt || new Date().toISOString()),
+    startedAt: Date.parse(String(body.startedAt || new Date().toISOString())),
     durationSeconds: (Number(body.durationMinutes) || 45) * 60,
-    notes: body.notes ? String(body.notes) : null,
-    source: "manual",
+    notes: body.notes ? String(body.notes) : undefined,
+    source: "manual" as const,
     exercises: parseWorkoutExercises(body.exercisesJson),
   };
 }
 
-export function fetchHealthDashboard(): Promise<NativeHealthDashboard> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<NativeHealthDashboard>(
-      "/v1/health/dashboard",
-    );
-  }
+function mapMeal(meal: ConvexRecord): NativeMeal {
+  return {
+    id: stringId(meal),
+    name: String(meal.name ?? "meal"),
+    mealType: String(meal.mealType ?? "meal"),
+    loggedAt: isoFromMillis(meal.loggedAt),
+    calories: optionalNumber(meal.calories) ?? 0,
+    proteinGrams: optionalNumber(meal.proteinGrams) ?? 0,
+    carbsGrams: optionalNumber(meal.carbsGrams) ?? 0,
+    fatGrams: optionalNumber(meal.fatGrams) ?? 0,
+    source: String(meal.source ?? "manual"),
+    notes: optionalString(meal.notes),
+    items: [],
+  };
+}
 
-  return runEffect(requestJson<NativeHealthDashboard>("/api/health/dashboard"));
+function mapMacroProfile(
+  profile: ConvexRecord | null | undefined,
+): NativeMacroProfile | null {
+  if (!profile) return null;
+  return {
+    id: stringId(profile),
+    goal: String(profile.goal ?? "maintain"),
+    sex: String(profile.sex ?? "male"),
+    age: optionalNumber(profile.age) ?? 30,
+    heightCm: optionalNumber(profile.heightCm) ?? 0,
+    weightKg: optionalNumber(profile.weightKg) ?? 0,
+    bodyFatPercent: optionalNumber(profile.bodyFatPercent),
+    activityLevel: String(profile.activityLevel ?? "moderate"),
+    birthdate: optionalString(profile.birthdate),
+    trainingDaysPerWeek: optionalNumber(profile.trainingDaysPerWeek) ?? 0,
+    targetCalories: optionalNumber(profile.targetCalories) ?? 0,
+    proteinGrams: optionalNumber(profile.proteinGrams) ?? 0,
+    carbsGrams: optionalNumber(profile.carbsGrams) ?? 0,
+    fatGrams: optionalNumber(profile.fatGrams) ?? 0,
+    createdAt: isoFromMillis(profile.createdAt),
+    updatedAt: isoFromMillis(profile.updatedAt),
+  };
+}
+
+function mapMeasurement(measurement: ConvexRecord): NativeMeasurement {
+  return {
+    id: stringId(measurement),
+    source: String(measurement.source ?? "manual"),
+    weightKg: optionalNumber(measurement.weightKg),
+    leanMassKg: optionalNumber(measurement.leanMassKg),
+    bodyFatPercent: optionalNumber(
+      measurement.bodyFatPercent ?? measurement.fatPercent,
+    ),
+    heightCm: optionalNumber(measurement.heightCm),
+    neckCm: optionalNumber(measurement.neckCm),
+    shoulderCm: optionalNumber(measurement.shoulderCm),
+    chestCm: optionalNumber(measurement.chestCm),
+    leftBicepCm: optionalNumber(measurement.leftBicepCm),
+    rightBicepCm: optionalNumber(measurement.rightBicepCm),
+    leftForearmCm: optionalNumber(measurement.leftForearmCm),
+    rightForearmCm: optionalNumber(measurement.rightForearmCm),
+    abdomenCm: optionalNumber(measurement.abdomenCm),
+    waistCm: optionalNumber(measurement.waistCm),
+    hipsCm: optionalNumber(measurement.hipsCm),
+    leftThighCm: optionalNumber(measurement.leftThighCm),
+    rightThighCm: optionalNumber(measurement.rightThighCm),
+    leftCalfCm: optionalNumber(measurement.leftCalfCm),
+    rightCalfCm: optionalNumber(measurement.rightCalfCm),
+    recordedAt: isoFromMillis(measurement.recordedAt),
+  };
+}
+
+function mapWorkout(workout: ConvexRecord): NativeWorkout {
+  const exercises = arrayOfRecords(workout.exercises);
+  return {
+    id: stringId(workout),
+    title: String(workout.title ?? "workout"),
+    startedAt: isoFromMillis(workout.startedAt),
+    durationSeconds: optionalNumber(workout.durationSeconds) ?? 0,
+    notes: optionalString(workout.notes),
+    source: String(workout.source ?? "manual"),
+    exercises: exercises.map((exercise) => ({
+      id: stringId(exercise),
+      title: String(exercise.title ?? "exercise"),
+      sets: arrayOfRecords(exercise.sets).map((set) => ({
+        id: stringId(set),
+        setType: String(set.setType ?? "normal"),
+        weightKg: optionalNumber(set.weightKg),
+        reps: optionalNumber(set.reps),
+        durationSeconds: optionalNumber(set.durationSeconds),
+        distanceMeters: optionalNumber(set.distanceMeters),
+      })),
+    })),
+  };
+}
+
+function totalVolumeLbs(workout: NativeWorkout): number {
+  return Math.round(
+    workout.exercises.reduce(
+      (sum, exercise) =>
+        sum +
+        exercise.sets.reduce(
+          (setSum, set) =>
+            setSum + (set.weightKg ?? 0) * 2.2046226218 * (set.reps ?? 0),
+          0,
+        ),
+      0,
+    ),
+  );
+}
+
+function workoutSummary(workout: NativeWorkout): WorkoutSummary {
+  const end = new Date(
+    Date.parse(workout.startedAt) + workout.durationSeconds * 1000,
+  ).toISOString();
+  return {
+    id: workout.id,
+    title: workout.title,
+    startTime: workout.startedAt,
+    endTime: end,
+    durationSeconds: workout.durationSeconds,
+    totalVolumeLbs: totalVolumeLbs(workout),
+    exerciseCount: workout.exercises.length,
+    topExercises: workout.exercises.slice(0, 3).map((exercise) => ({
+      title: exercise.title,
+      summary: `${exercise.sets.length} sets`,
+    })),
+  };
+}
+
+function detailedWorkout(workout: NativeWorkout): DetailedWorkoutSummary {
+  return {
+    ...workoutSummary(workout),
+    exercises: workout.exercises.map((exercise) => ({
+      title: exercise.title,
+      sets: exercise.sets.map((set, index) => ({
+        index: index + 1,
+        type: set.setType,
+        weight: set.weightKg === null ? "" : `${set.weightKg} kg`,
+        reps: set.reps === null ? "" : String(set.reps),
+      })),
+    })),
+  };
+}
+
+function mapDashboard(payload: ConvexRecord): NativeHealthDashboard {
+  return {
+    macroProfile: mapMacroProfile(
+      payload.macroProfile as ConvexRecord | null | undefined,
+    ),
+    todayMeals: arrayOfRecords(payload.todayMeals).map(mapMeal),
+    recentMeals: arrayOfRecords(payload.recentMeals ?? payload.todayMeals).map(
+      mapMeal,
+    ),
+    recentWorkouts: arrayOfRecords(payload.recentWorkouts).map(mapWorkout),
+    measurementHistory: arrayOfRecords(
+      payload.measurementHistory ?? payload.latestMeasurement,
+    ).map(mapMeasurement),
+  };
+}
+
+function todayBounds() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { dayStart: start.getTime(), dayEnd: end.getTime() };
+}
+
+export async function fetchHealthDashboard(): Promise<NativeHealthDashboard> {
+  const dashboard = (await convexClient.query(
+    convexApi.health.dashboard,
+    todayBounds(),
+  )) as ConvexRecord;
+  return mapDashboard(dashboard);
 }
 
 export function postHealthForm(path: string, formData: FormData) {
-  if (shouldUseBrowserLocalBackend()) {
-    if (path === "/api/health/meals") {
-      const body = Object.fromEntries(formData.entries());
-      const id = typeof body.id === "string" ? body.id.trim() : "";
-      return requestBrowserLocalJson<unknown>(
-        id ? `/v1/health/meals/${encodeURIComponent(id)}` : "/v1/health/meals",
-        {
-          method: id ? "PUT" : "POST",
-          body: JSON.stringify(mealBodyFromForm(formData)),
-        },
-      );
-    }
-    if (path === "/api/health/macro-profile") {
-      return requestBrowserLocalJson<unknown>("/v1/health/macro-profile", {
-        method: "POST",
-        body: JSON.stringify(macroProfileBodyFromForm(formData)),
-      });
-    }
-    if (path === "/api/health/native-workouts") {
-      const body = Object.fromEntries(formData.entries());
-      const id = typeof body.id === "string" ? body.id.trim() : "";
-      return requestBrowserLocalJson<unknown>(
-        id
-          ? `/v1/health/workouts/${encodeURIComponent(id)}`
-          : "/v1/health/workouts",
-        {
-          method: id ? "PUT" : "POST",
-          body: JSON.stringify(workoutBodyFromForm(formData)),
-        },
-      );
-    }
+  const body = Object.fromEntries(formData.entries());
+  const id =
+    typeof body.id === "string" && body.id.trim() ? body.id.trim() : undefined;
+  if (path === "/api/health/meals") {
+    return convexClient.mutation(convexApi.health.saveMeal, {
+      id,
+      ...mealBodyFromForm(formData),
+    });
   }
-
-  return runEffect(
-    postJson<unknown>(path, Object.fromEntries(formData.entries())),
-  );
+  if (path === "/api/health/macro-profile") {
+    return convexClient.mutation(
+      convexApi.health.saveMacroProfile,
+      macroProfileBodyFromForm(formData),
+    );
+  }
+  if (path === "/api/health/measurements") {
+    return convexClient.mutation(convexApi.health.saveBodyMeasurement, {
+      id,
+      ...measurementBodyFromForm(formData),
+    });
+  }
+  if (path === "/api/health/native-workouts") {
+    return convexClient.mutation(convexApi.health.saveWorkout, {
+      id,
+      ...workoutBodyFromForm(formData),
+    });
+  }
+  return Promise.reject(new Error(`Unsupported health form endpoint: ${path}`));
 }
 
 export function searchFood(
   query: string,
   provider: string,
 ): Promise<{ results?: FoodSearchResult[] }> {
-  const params = new URLSearchParams({ q: query, provider });
-  const request = shouldUseBrowserLocalBackend()
-    ? requestBrowserLocalJson<{ results?: FoodSearchResult[] }>(
-        `/v1/integrations/food/search?${params.toString()}`,
-      )
-    : runEffect(
-        requestJson<{ results?: FoodSearchResult[] }>(
-          `/api/health/food-search?${params.toString()}`,
-        ),
-      );
-  return request.catch(() => ({ results: [] }));
+  return convexClient.action(convexApi.healthSearch.searchFood, {
+    query,
+    provider,
+  }) as Promise<{ results?: FoodSearchResult[] }>;
 }
 
-export function searchExercise(query: string) {
-  return runEffect(
-    requestJson<{ results?: unknown[] }>(
-      `/api/health/exercise-search?q=${encodeURIComponent(query)}`,
-    ),
-  ).catch(() => ({ results: [] }));
+export async function searchExercise(
+  query: string,
+): Promise<{ results: ExerciseSearchResult[] }> {
+  const payload = await fetchHevyExerciseTemplates();
+  const needle = query.trim().toLowerCase();
+  return {
+    results: payload.exerciseTemplates
+      .filter(
+        (exercise) => !needle || exercise.title.toLowerCase().includes(needle),
+      )
+      .map((exercise) => ({
+        id: exercise.id,
+        name: exercise.title,
+        source: "hevy",
+      })),
+  };
 }
 
 export function deleteMealById(id: string) {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<unknown>(
-      `/v1/health/meals/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    );
-  }
-
-  return runEffect(deleteJson<unknown>("/api/health/meals", { id }));
+  return convexClient.mutation(convexApi.health.removeMeal, { id });
 }
 
 export type HevyConnectionSettings = {
@@ -280,29 +500,21 @@ export type HevyExerciseTemplate = {
   title: string;
 };
 
-export function fetchHevySettings(): Promise<HevyConnectionSettings> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<HevyConnectionSettings>(
-      "/v1/integrations/hevy/settings",
-    );
-  }
-
-  return runEffect(
-    requestJson<HevyConnectionSettings>("/api/integrations/hevy/settings"),
-  );
+export async function fetchHevySettings(): Promise<HevyConnectionSettings> {
+  const settings = (await convexClient.action(
+    convexApi.hevy.settings,
+    {},
+  )) as HevyActionSettings;
+  return {
+    connected: Boolean(settings.connected ?? settings.hasApiKey),
+    hasApiKey: Boolean(settings.hasApiKey ?? settings.connected),
+    lastCheckedAt: settings.lastCheckedAt ?? null,
+    secretProvider: settings.secretProvider ?? null,
+  };
 }
 
 export function saveHevySettings(apiKey: string) {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<unknown>("/v1/integrations/hevy/settings", {
-      method: "POST",
-      body: JSON.stringify({ apiKey }),
-    });
-  }
-
-  return runEffect(
-    postJson<unknown>("/api/integrations/hevy/settings", { apiKey }),
-  );
+  return convexClient.action(convexApi.hevy.saveSettings, { apiKey });
 }
 
 export type HevySyncSummary = {
@@ -315,87 +527,90 @@ export type HevySyncSummary = {
 };
 
 export function syncHevy(): Promise<HevySyncSummary> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<HevySyncSummary>(
-      "/v1/integrations/hevy/sync",
-      {
-        method: "POST",
-      },
-    );
-  }
-
-  return runEffect(
-    postJson<HevySyncSummary>("/api/integrations/hevy/sync", {}),
-  );
+  return convexClient.action(
+    convexApi.hevy.syncNow,
+    {},
+  ) as Promise<HevySyncSummary>;
 }
 
 export function fetchHevyRoutines(): Promise<{ routines: HevyRoutine[] }> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<{ routines: HevyRoutine[] }>(
-      "/v1/integrations/hevy/routines",
-    );
-  }
-
-  return runEffect(
-    requestJson<{ routines: HevyRoutine[] }>("/api/integrations/hevy/routines"),
-  );
+  return convexClient.action(convexApi.hevy.listRoutines, {}) as Promise<{
+    routines: HevyRoutine[];
+  }>;
 }
 
 export function saveHevyRoutine(routine: HevyRoutine): Promise<HevyRoutine> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<HevyRoutine>(
-      `/v1/integrations/hevy/routines/${encodeURIComponent(routine.id)}`,
-      {
-        method: "PUT",
-        body: JSON.stringify(routine),
-      },
-    );
-  }
-
-  return runEffect(
-    requestJson<HevyRoutine>(
-      `/api/integrations/hevy/routines?routineId=${encodeURIComponent(routine.id)}`,
-      { method: "PUT", body: JSON.stringify(routine) },
-    ),
-  );
+  return convexClient.action(convexApi.hevy.saveRoutine, {
+    routine,
+  }) as Promise<HevyRoutine>;
 }
 
 export function fetchHevyExerciseTemplates(): Promise<{
   exerciseTemplates: HevyExerciseTemplate[];
 }> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<{
-      exerciseTemplates: HevyExerciseTemplate[];
-    }>("/v1/integrations/hevy/exercise-templates");
-  }
-
-  return runEffect(
-    requestJson<{ exerciseTemplates: HevyExerciseTemplate[] }>(
-      "/api/integrations/hevy/exercise-templates",
-    ),
-  );
+  return convexClient.action(
+    convexApi.hevy.listExerciseTemplates,
+    {},
+  ) as Promise<{
+    exerciseTemplates: HevyExerciseTemplate[];
+  }>;
 }
 
-export function fetchExerciseStats(exercise: string) {
-  return runEffect(
-    requestJson<ExerciseStats>(
-      `/api/health/exercise-stats?exercise=${encodeURIComponent(exercise)}`,
-    ),
+export async function fetchExerciseStats(
+  exercise: string,
+): Promise<ExerciseStats> {
+  const dashboard = await fetchHealthDashboard();
+  const matchingSets = dashboard.recentWorkouts.flatMap((workout) =>
+    workout.exercises
+      .filter((item) => item.title.toLowerCase() === exercise.toLowerCase())
+      .flatMap((item) =>
+        item.sets.map((set) => ({
+          date: workout.startedAt,
+          weightKg: set.weightKg,
+          reps: set.reps,
+        })),
+      ),
   );
+  return {
+    exercise,
+    trend: matchingSets.length >= 2 ? "plateau" : "insufficient",
+    e1rmSeries: matchingSets.flatMap((set) =>
+      set.weightKg && set.reps
+        ? [
+            {
+              date: set.date,
+              e1rm: Math.round(
+                set.weightKg * 2.2046226218 * (1 + set.reps / 30),
+              ),
+            },
+          ]
+        : [],
+    ),
+    volumeSeries: matchingSets.map((set) => ({
+      date: set.date,
+      volume: Math.round((set.weightKg ?? 0) * 2.2046226218 * (set.reps ?? 0)),
+    })),
+    latestSets: matchingSets.slice(0, 5).map((set) => ({
+      date: set.date,
+      summary: `${set.weightKg ?? 0} kg × ${set.reps ?? 0}`,
+    })),
+  };
 }
 
-export function fetchWorkouts(input: { limit: number; offset: number }) {
-  return runEffect(
-    requestJson<{ workouts: WorkoutSummary[] }>(
-      `/api/health/workouts?limit=${input.limit}&offset=${input.offset}`,
-    ),
-  );
+export async function fetchWorkouts(input: { limit: number; offset: number }) {
+  const dashboard = await fetchHealthDashboard();
+  const workouts = dashboard.recentWorkouts.map(workoutSummary);
+  return {
+    workouts: workouts.slice(input.offset, input.offset + input.limit),
+    total: workouts.length,
+  };
 }
 
-export function fetchWorkoutDetail(id: string) {
-  return runEffect(
-    requestJson<DetailedWorkoutSummary>(
-      `/api/health/workouts?id=${encodeURIComponent(id)}`,
-    ),
-  );
+export async function fetchWorkoutDetail(
+  id: string,
+): Promise<DetailedWorkoutSummary> {
+  const workout = (await convexClient.query(convexApi.health.getWorkout, {
+    id,
+  })) as ConvexRecord;
+  return detailedWorkout(mapWorkout(workout));
 }

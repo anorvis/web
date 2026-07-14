@@ -1,19 +1,5 @@
-import { deleteJson, postJson, requestJson } from "@/lib/effect/http";
-import { runEffect } from "@/lib/effect/runtime";
-import {
-  requestBrowserLocalJson,
-  shouldUseBrowserLocalBackend,
-} from "@/lib/local-backend-client";
-
-// ---------------------------------------------------------------------------
-// SnapTrade Personal (BYOK) source client.
-//
-// Mirrors the read-only OS routes under /v1/integrations/snaptrade. Credentials
-// are write-only: the API returns booleans/status only and NEVER echoes the
-// clientId or consumerKey back. The connection portal is locked to read access
-// server-side, so the web never sends a connection type and Anorvis can neither
-// trade nor move money.
-// ---------------------------------------------------------------------------
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 
 export type SnapTradeSettings = {
   connected: boolean;
@@ -51,75 +37,41 @@ export type SnapTradeSyncSummary = {
   warnings: string[];
 };
 
-export function fetchSnapTradeSettings(): Promise<SnapTradeSettings> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<SnapTradeSettings>(
-      "/v1/integrations/snaptrade/settings",
-    );
-  }
-
-  return runEffect(
-    requestJson<SnapTradeSettings>("/api/integrations/snaptrade/settings"),
-  );
+export async function fetchSnapTradeSettings(): Promise<SnapTradeSettings> {
+  const settings = (await convexClient.action(
+    convexApi.snaptrade.settings,
+    {},
+  )) as SnapTradeSettings;
+  return {
+    ...settings,
+    status: settings.connected ? "connected" : "available",
+  } as SnapTradeSettings;
 }
 
-export function saveSnapTradeSettings(
+export async function saveSnapTradeSettings(
   credentials: SnapTradeCredentials,
 ): Promise<SnapTradeSettings> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<SnapTradeSettings>(
-      "/v1/integrations/snaptrade/settings",
-      { method: "POST", body: JSON.stringify(credentials) },
-    );
-  }
-
-  return runEffect(
-    postJson<SnapTradeSettings>(
-      "/api/integrations/snaptrade/settings",
-      credentials,
-    ),
-  );
+  await convexClient.action(convexApi.snaptrade.saveSettings, credentials);
+  return fetchSnapTradeSettings();
 }
 
-// Opens a read-only SnapTrade Connection Portal. The connection type is locked
-// to `read` server-side, so no connection options are sent from the web.
 export function openSnapTradePortal(): Promise<SnapTradePortal> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<SnapTradePortal>(
-      "/v1/integrations/snaptrade/portal",
-      { method: "POST", body: JSON.stringify({}) },
-    );
-  }
-
-  return runEffect(
-    postJson<SnapTradePortal>("/api/integrations/snaptrade/portal", {}),
-  );
+  return convexClient.action(
+    convexApi.snaptrade.createConnectionPortal,
+    {},
+  ) as Promise<SnapTradePortal>;
 }
 
 export function syncSnapTrade(): Promise<SnapTradeSyncSummary> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<SnapTradeSyncSummary>(
-      "/v1/integrations/snaptrade/sync",
-      { method: "POST" },
-    );
-  }
-
-  return runEffect(
-    postJson<SnapTradeSyncSummary>("/api/integrations/snaptrade/sync", {}),
-  );
+  return convexClient.action(
+    convexApi.snaptrade.syncNow,
+    {},
+  ) as Promise<SnapTradeSyncSummary>;
 }
 
-// Clears Anorvis-stored SnapTrade credentials only. Brokerage connections held
-// by SnapTrade itself are never touched by this call.
-export function disconnectSnapTrade(): Promise<{ ok: true }> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<{ ok: true }>(
-      "/v1/integrations/snaptrade/disconnect",
-      { method: "DELETE" },
-    );
-  }
-
-  return runEffect(
-    deleteJson<{ ok: true }>("/api/integrations/snaptrade/disconnect"),
-  );
+export async function disconnectSnapTrade(): Promise<{ ok: true }> {
+  await convexClient.mutation(convexApi.integrations.disconnect, {
+    provider: "snaptrade",
+  });
+  return { ok: true };
 }
