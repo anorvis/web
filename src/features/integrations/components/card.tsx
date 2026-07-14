@@ -221,12 +221,16 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
   };
 
   const saveGoogleSettings = async () => {
+    const clientId = googleClientId.trim();
+    const clientSecret = googleClientSecret.trim();
+    // Half-typed keys must never silently fall back to stored credentials.
+    if ((clientId || clientSecret) && !(clientId && clientSecret)) return;
     setSaving(true);
     try {
-      const data = await startGoogleOAuth({
-        clientId: googleClientId,
-        clientSecret: googleClientSecret,
-      });
+      // Stored OAuth client config survives disconnect: sign in without keys.
+      const data = await startGoogleOAuth(
+        clientId && clientSecret ? { clientId, clientSecret } : {},
+      );
       window.location.assign(data.authorizationUrl);
     } finally {
       setSaving(false);
@@ -514,6 +518,7 @@ export function IntegrationCard({
           saving={saving}
           googleClientId={googleClientId}
           googleClientSecret={googleClientSecret}
+          googleCanStartOAuth={googleCanStartOAuth}
           pinterestClientId={pinterestClientId}
           pinterestClientSecret={pinterestClientSecret}
           hevyApiKey={hevyApiKey}

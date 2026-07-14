@@ -74,11 +74,13 @@ export const convexApi = {
     list: query("capability/integration:list"),
     disconnect: mutation("capability/integration:disconnect"),
     startSync: mutation("capability/integration:startSync"),
+    syncJobStatus: query("capability/integration:syncJobStatus"),
   },
   google: {
     settings: action("capability/integration/google:settings"),
     saveSettings: action("capability/integration/google:saveSettings"),
     start: action("capability/integration/google:start"),
+    disconnect: action("capability/integration/google:disconnect"),
   },
   pinterest: {
     settings: action("capability/integration/pinterest:settings"),

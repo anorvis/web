@@ -75,8 +75,11 @@ export function postIntegrationAction<T>(path: string): Promise<T> {
   const disconnect = path.match(/^\/api\/integrations\/([^/]+)\/disconnect$/);
   if (disconnect) {
     const provider = disconnect[1];
+    if (provider === "google") {
+      // Google keeps its OAuth client config so re-sign-in needs no keys.
+      return convexClient.action(convexApi.google.disconnect, {}) as Promise<T>;
+    }
     if (
-      provider === "google" ||
       provider === "pinterest" ||
       provider === "hevy" ||
       provider === "snaptrade"
@@ -109,8 +112,8 @@ export function saveIntegrationToken(input: {
 }
 
 export function startGoogleOAuth(input: {
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  clientSecret?: string;
   returnTo?: string;
 }): Promise<{ authorizationUrl: string }> {
   const origin = window.location.origin;
