@@ -252,17 +252,24 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
   };
 
   const saveGoogleSetup = async () => {
+    const clientId = googleClientId.trim();
+    const clientSecret = googleClientSecret.trim();
+    // Half-typed keys must never silently fall back to stored credentials.
+    if ((clientId || clientSecret) && !(clientId && clientSecret)) {
+      setGoogleMessage("enter both the client id and the client secret");
+      return;
+    }
     setGoogleSaving(true);
     setGoogleMessage(null);
     try {
+      // Stored OAuth client config survives disconnect: sign in without keys.
       const data = await startGoogleOAuth({
-        clientId: googleClientId,
-        clientSecret: googleClientSecret,
+        ...(clientId && clientSecret ? { clientId, clientSecret } : {}),
         returnTo: `${window.location.origin}/life`,
       });
       window.location.assign(data.authorizationUrl);
     } catch {
-      setGoogleMessage("couldn't save Google OAuth client");
+      setGoogleMessage("couldn't start Google sign-in");
     } finally {
       setGoogleSaving(false);
     }
@@ -567,11 +574,16 @@ export function AddSourceButton({ domain }: { domain: SourceDomain }) {
                     className={workspacePageStyles.modalButton}
                     disabled={
                       googleSaving ||
-                      !googleClientId.trim() ||
-                      !googleClientSecret.trim()
+                      (googleClientId.trim() || googleClientSecret.trim()
+                        ? !(googleClientId.trim() && googleClientSecret.trim())
+                        : !googleCanConnect)
                     }
                   >
-                    {googleSaving ? "..." : "save keys"}
+                    {googleSaving
+                      ? "..."
+                      : googleClientId.trim() && googleClientSecret.trim()
+                        ? "save keys & sign in"
+                        : "sign in with google"}
                   </button>
                 )}
                 {configuringSource.label === "hevy" && (

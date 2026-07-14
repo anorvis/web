@@ -12,6 +12,7 @@ export function IntegrationDialogActions({
   saving,
   googleClientId,
   googleClientSecret,
+  googleCanStartOAuth,
   pinterestClientId,
   pinterestClientSecret,
   hevyApiKey,
@@ -27,6 +28,7 @@ export function IntegrationDialogActions({
   saving: boolean;
   googleClientId: string;
   googleClientSecret: string;
+  googleCanStartOAuth: boolean;
   pinterestClientId: string;
   pinterestClientSecret: string;
   hevyApiKey: string;
@@ -50,6 +52,7 @@ export function IntegrationDialogActions({
           saving={saving}
           clientId={googleClientId}
           clientSecret={googleClientSecret}
+          canStartOAuth={googleCanStartOAuth}
           connected={integration.status === "connected"}
           providerName="google"
           onSave={onSaveGoogle}
@@ -59,6 +62,7 @@ export function IntegrationDialogActions({
           saving={saving}
           clientId={pinterestClientId}
           clientSecret={pinterestClientSecret}
+          canStartOAuth={false}
           connected={integration.status === "connected"}
           providerName="pinterest"
           onSave={onSavePinterest}
@@ -88,6 +92,7 @@ function OAuthActions({
   saving,
   clientId,
   clientSecret,
+  canStartOAuth,
   connected,
   onSave,
   providerName,
@@ -95,16 +100,26 @@ function OAuthActions({
   saving: boolean;
   clientId: string;
   clientSecret: string;
+  canStartOAuth: boolean;
   connected: boolean;
   providerName: string;
   onSave: () => void;
 }) {
+  const clientIdTyped = Boolean(clientId.trim());
+  const clientSecretTyped = Boolean(clientSecret.trim());
+  const keysTyped = clientIdTyped && clientSecretTyped;
+  const hasAnyKey = clientIdTyped || clientSecretTyped;
+  // Half-typed keys must never silently fall back to stored credentials.
   return (
     <ActionButton
-      disabled={saving || !clientId.trim() || !clientSecret.trim()}
+      disabled={saving || (hasAnyKey ? !keysTyped : !canStartOAuth)}
       onClick={onSave}
     >
-      {connected ? "save oauth client" : `connect ${providerName}`}
+      {keysTyped
+        ? connected
+          ? "save oauth client"
+          : `connect ${providerName}`
+        : `sign in with ${providerName}`}
     </ActionButton>
   );
 }
