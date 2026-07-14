@@ -9,7 +9,7 @@ vi.mock("@/lib/convex-client", () => ({
 }));
 
 vi.mock("@/lib/convex-functions", () => ({
-  convexApi: { integrations: { list: "integrations:list" } },
+  convexApi: { integrations: { list: "capability/integration:list" } },
 }));
 
 describe("getIntegrationCatalog", () => {
@@ -25,7 +25,7 @@ describe("getIntegrationCatalog", () => {
 
     const catalog = await getIntegrationCatalog();
 
-    expect(convexQuery).toHaveBeenCalledWith("integrations:list", {});
+    expect(convexQuery).toHaveBeenCalledWith("capability/integration:list", {});
     expect(catalog.map(({ id, status }) => ({ id, status }))).toEqual([
       { id: "hevy", status: "pending" },
       { id: "google", status: "connected" },
