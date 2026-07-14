@@ -1,13 +1,10 @@
 import "server-only";
 
 import type { IntegrationCatalogEntry } from "@/features/overview/types/overview";
-import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 
-type IntegrationsPayload = {
-  integrations: IntegrationCatalogEntry[];
-};
-
-const fallbackIntegrations: IntegrationCatalogEntry[] = [
+const convexIntegrations: IntegrationCatalogEntry[] = [
   {
     id: "hevy",
     displayName: "Hevy",
@@ -16,61 +13,49 @@ const fallbackIntegrations: IntegrationCatalogEntry[] = [
       "Workout history import and sync from Hevy into native fitness records.",
     capabilities: ["Workout import", "Exercise history", "Fitness sync"],
     authType: "token",
-    status: "unavailable",
-    setupHint: "Start anorvis-os to configure this integration.",
-  },
-  {
-    id: "fatsecret",
-    displayName: "FatSecret",
-    category: "health",
-    description: "Global food database for meal search and macro lookup.",
-    capabilities: ["Food search", "Macro lookup", "Global foods"],
-    authType: "token",
-    status: "unavailable",
-    setupHint: "Start anorvis-os to configure this integration.",
-  },
-  {
-    id: "nutritionix",
-    displayName: "Nutritionix",
-    category: "health",
-    description: "Branded and common food database for meal search.",
-    capabilities: ["Food search", "Macro lookup", "Branded foods"],
-    authType: "token",
-    status: "unavailable",
-    setupHint: "Start anorvis-os to configure this integration.",
+    status: "available",
+    setupHint: "Connect with a Hevy API key. Sync runs through Convex.",
   },
   {
     id: "google",
     displayName: "Google Workspace",
     category: "life",
     description:
-      "Calendar, Gmail, and Drive context for scheduling and retrieval.",
-    capabilities: ["Calendar", "Gmail", "Drive"],
+      "Calendar context for scheduling and retrieval through authenticated Google OAuth.",
+    capabilities: ["Calendar"],
     authType: "oauth2",
-    status: "unavailable",
-    setupHint: "Start anorvis-os to connect this integration.",
+    status: "available",
+    setupHint:
+      "Connect through Google OAuth. Credentials are stored in Convex.",
   },
   {
-    id: "obsidian",
-    displayName: "Workspace Sources",
-    category: "library",
+    id: "snaptrade",
+    displayName: "SnapTrade",
+    category: "finance",
     description:
-      "Approved local folders that agents can search as workspace context.",
-    capabilities: ["Approved folders", "Local search", "Agent context"],
-    authType: "local",
-    status: "unavailable",
-    setupHint: "Start anorvis-os to manage local workspace sources.",
+      "Brokerage connection portal for investment account syncing through SnapTrade.",
+    capabilities: ["Brokerage portal", "Investment accounts", "Portfolio sync"],
+    authType: "token",
+    status: "available",
+    setupHint:
+      "Configure SnapTrade credentials to launch the connection portal.",
   },
 ];
 
 export async function getIntegrationCatalog(): Promise<
   IntegrationCatalogEntry[]
 > {
-  try {
-    const payload =
-      await gatewayFetchJson<IntegrationsPayload>("/v1/integrations");
-    return payload.integrations;
-  } catch {
-    return fallbackIntegrations;
-  }
+  const connections = (await convexClient.query(
+    convexApi.integrations.list,
+    {},
+  )) as Array<{
+    provider: string;
+    status: IntegrationCatalogEntry["status"];
+  }>;
+  return convexIntegrations.map((integration) => ({
+    ...integration,
+    status:
+      connections.find((connection) => connection.provider === integration.id)
+        ?.status ?? integration.status,
+  }));
 }

@@ -1,14 +1,6 @@
-import { rmSync } from "node:fs";
-import { resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const e2eOsUrl = "http://127.0.0.1:8877";
-const e2eDbPath =
-  process.env.ANORVIS_E2E_DB_PATH ??
-  resolve(__dirname, ".playwright", "anorvis-e2e.sqlite");
-for (const path of [e2eDbPath, `${e2eDbPath}-wal`, `${e2eDbPath}-shm`]) {
-  rmSync(path, { force: true });
-}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -34,11 +26,9 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 120000,
       env: {
-        ANORVIS_SECRET_PROVIDER: "local",
         ANORVIS_OS_API_TOKEN: "e2e-token",
         ANORVIS_OS_HOST: "127.0.0.1",
         ANORVIS_OS_PORT: "8877",
-        ANORVIS_DB_PATH: e2eDbPath,
       },
     },
     {

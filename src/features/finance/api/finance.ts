@@ -1,10 +1,5 @@
-import {
-  deleteJson,
-  patchJson,
-  postJson,
-  requestJson,
-} from "@/lib/effect/http";
-import { runEffect } from "@/lib/effect/runtime";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import type {
   Account,
   Category,
@@ -12,10 +7,6 @@ import type {
   Position,
   Transaction,
 } from "@/lib/life-intelligence/model";
-import {
-  requestBrowserLocalJson,
-  shouldUseBrowserLocalBackend,
-} from "@/lib/local-backend-client";
 
 // ---------------------------------------------------------------------------
 // Canonical finance dashboard response.
@@ -191,16 +182,11 @@ export type FinanceDashboard = {
 export async function fetchFinanceDashboard(
   currency: string,
 ): Promise<FinanceDashboard> {
-  const query = `currency=${encodeURIComponent(currency)}`;
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<FinanceDashboard>(
-      `/v1/finance/dashboard?${query}`,
-    );
-  }
-
-  return runEffect(
-    requestJson<FinanceDashboard>(`/api/finance/dashboard?${query}`),
+  const dashboard = await convexClient.action(
+    convexApi.financeDashboard.dashboard,
+    { currency },
   );
+  return financeDashboardFromConvex(dashboard, currency);
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +194,7 @@ export async function fetchFinanceDashboard(
 //
 // Mirrors `CsvImportBody` from os/src/capability/finance/schema.ts. The web
 // parses CSV locally, but the normalized payload persists through the canonical
-// OS import route — the source of truth for the dashboard on reload.
+// backend — the source of truth for the dashboard on reload.
 // ---------------------------------------------------------------------------
 
 export type CsvImportSource =
@@ -262,32 +248,21 @@ export type FinanceImportUndoResult = {
 export async function undoFinanceImport(
   importId: string,
 ): Promise<FinanceImportUndoResult> {
-  const encodedImportId = encodeURIComponent(importId);
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<FinanceImportUndoResult>(
-      `/v1/finance/imports/${encodedImportId}`,
-      { method: "DELETE" },
-    );
-  }
-
-  return runEffect(
-    deleteJson<FinanceImportUndoResult>(
-      `/api/finance/imports/${encodedImportId}`,
-    ),
-  );
+  return convexClient.mutation(convexApi.financeImport.undoImport, {
+    importId,
+  }) as Promise<FinanceImportUndoResult>;
 }
 
 export async function importFinanceCsv(
   body: CsvImportRequest,
 ): Promise<CsvImportResult> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<CsvImportResult>("/v1/finance/imports/csv", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-  }
-
-  return runEffect(postJson<CsvImportResult>("/api/finance/imports/csv", body));
+  return convexClient.action(convexApi.financeImport.importCsv, {
+    ...body,
+    transactions: body.transactions.map((transaction, index) => ({
+      ...transaction,
+      rowNumber: index + 1,
+    })),
+  }) as Promise<CsvImportResult>;
 }
 
 export type CreateFinanceAccountRequest = {
@@ -305,19 +280,16 @@ export type CreateFinanceAccountResult = {
 export async function createFinanceAccount(
   body: CreateFinanceAccountRequest,
 ): Promise<CreateFinanceAccountResult> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<CreateFinanceAccountResult>(
-      "/v1/finance/accounts",
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-    );
-  }
-
-  return runEffect(
-    postJson<CreateFinanceAccountResult>("/api/finance/accounts", body),
-  );
+  const accountId = await convexClient.mutation(convexApi.finance.saveAccount, {
+    name: body.name,
+    type: body.type,
+    currency: body.currency,
+    balance: body.balance == null ? undefined : String(body.balance),
+  });
+  const dashboard = await fetchFinanceDashboard(body.currency);
+  const account = dashboard.accounts.find((row) => row.id === accountId);
+  if (!account) throw new Error("Created finance account was not returned");
+  return { ok: true, account };
 }
 
 export type UpdateFinanceAccountRequest = {
@@ -335,23 +307,25 @@ export async function updateFinanceAccount(
   accountId: string,
   body: UpdateFinanceAccountRequest,
 ): Promise<UpdateFinanceAccountResult> {
-  const encodedAccountId = encodeURIComponent(accountId);
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<UpdateFinanceAccountResult>(
-      `/v1/finance/accounts/${encodedAccountId}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      },
-    );
-  }
-
-  return runEffect(
-    patchJson<UpdateFinanceAccountResult>(
-      `/api/finance/accounts/${encodedAccountId}`,
-      body,
-    ),
+  const current = await findFinanceAccount(accountId);
+  const savedAccountId = await convexClient.mutation(
+    convexApi.finance.saveAccount,
+    {
+      id: accountId,
+      name: body.name ?? current.name,
+      type: current.type,
+      currency: current.currency,
+      balance:
+        body.balance === undefined || body.balance === null
+          ? undefined
+          : String(body.balance),
+      clearBalance: body.balance === null ? true : undefined,
+      status:
+        body.status ?? (current.status as "hidden" | "active" | undefined),
+    },
   );
+  const updated = await findFinanceAccount(String(savedAccountId));
+  return { ok: true, account: updated };
 }
 
 export type DeleteFinanceAccountResult = {
@@ -363,19 +337,9 @@ export type DeleteFinanceAccountResult = {
 export async function deleteFinanceAccount(
   accountId: string,
 ): Promise<DeleteFinanceAccountResult> {
-  const encodedAccountId = encodeURIComponent(accountId);
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<DeleteFinanceAccountResult>(
-      `/v1/finance/accounts/${encodedAccountId}`,
-      { method: "DELETE" },
-    );
-  }
-
-  return runEffect(
-    deleteJson<DeleteFinanceAccountResult>(
-      `/api/finance/accounts/${encodedAccountId}`,
-    ),
-  );
+  return convexClient.mutation(convexApi.finance.removeAccount, {
+    accountId,
+  }) as Promise<DeleteFinanceAccountResult>;
 }
 
 export type FinanceAccountLinkRequest = {
@@ -394,33 +358,17 @@ export type FinanceAccountLinkResult = {
 export async function linkFinanceAccounts(
   body: FinanceAccountLinkRequest,
 ): Promise<FinanceAccountLinkResult> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<FinanceAccountLinkResult>(
-      "/v1/finance/accounts/links",
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-    );
-  }
-
-  return runEffect(
-    postJson<FinanceAccountLinkResult>("/api/finance/accounts/links", body),
-  );
+  return convexClient.mutation(convexApi.finance.linkAccount, {
+    canonicalAccountId: body.canonicalAccountId,
+    accountId: body.duplicateAccountId,
+  }) as Promise<FinanceAccountLinkResult>;
 }
 
 export async function unlinkFinanceAccount(
   accountId: string,
 ): Promise<{ unlinked: true; accountId: string }> {
-  const path = `/api/finance/accounts/links/${encodeURIComponent(accountId)}`;
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<{ unlinked: true; accountId: string }>(
-      `/v1/finance/accounts/links/${encodeURIComponent(accountId)}`,
-      { method: "DELETE" },
-    );
-  }
-
-  return runEffect(deleteJson<{ unlinked: true; accountId: string }>(path));
+  await convexClient.mutation(convexApi.finance.unlinkAccount, { accountId });
+  return { unlinked: true, accountId };
 }
 
 // ---------------------------------------------------------------------------
@@ -522,4 +470,251 @@ export function financeDataFromDashboard(
   }));
 
   return { accounts, categories, transactions, positions };
+}
+
+function textNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const result = Number(value);
+    return Number.isFinite(result) ? result : null;
+  }
+  return null;
+}
+
+function iso(value: unknown): string | null {
+  if (typeof value === "number" || typeof value === "string") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.valueOf())) return date.toISOString();
+  }
+  return null;
+}
+
+function financeDashboardFromConvex(
+  value: unknown,
+  currency: string,
+): FinanceDashboard {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  const rows = (name: string): Array<Record<string, unknown>> =>
+    Array.isArray(raw[name])
+      ? (raw[name] as Array<Record<string, unknown>>)
+      : [];
+  const categories = rows("categories").map((row) => ({
+    id: String(row._id),
+    name: String(row.name ?? ""),
+    group: String(row.group ?? "other"),
+    excludeFromSpending: row.excludeFromSpending === true,
+    color: typeof row.color === "string" ? row.color : null,
+  }));
+  const categoryById = new Map(categories.map((row) => [row.id, row]));
+  const accounts: FinanceAccountRecord[] = rows("accounts").map((row) => ({
+    id: String(row._id),
+    source: String(row.source ?? "manual"),
+    sourceId: typeof row.sourceId === "string" ? row.sourceId : null,
+    sourceVariant:
+      typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    name: String(row.name ?? ""),
+    type: String(row.type ?? "checking"),
+    currency: String(row.currency ?? currency),
+    balance: textNumber(row.balance),
+    institution: typeof row.institution === "string" ? row.institution : null,
+    mask: typeof row.mask === "string" ? row.mask : null,
+    status: typeof row.status === "string" ? row.status : null,
+    importId: typeof row.importJobId === "string" ? row.importJobId : null,
+    observedAt: iso(row.observedAt),
+    createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+  }));
+  const balances: FinanceBalanceRecord[] = rows("balances").map((row) => ({
+    id: String(row._id),
+    accountId: String(row.accountId),
+    currency: String(row.currency ?? currency),
+    cash: textNumber(row.cash),
+    buyingPower: textNumber(row.buyingPower),
+    observedAt: iso(row.observedAt) ?? new Date(0).toISOString(),
+    source: String(row.source ?? "manual"),
+    sourceVariant:
+      typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    importId: typeof row.importJobId === "string" ? row.importJobId : null,
+    updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+  }));
+  const transactions: FinanceTransactionRecord[] = rows("transactions").map(
+    (row) => {
+      const category =
+        typeof row.categoryId === "string"
+          ? categoryById.get(row.categoryId)
+          : undefined;
+      return {
+        id: String(row._id),
+        accountId: typeof row.accountId === "string" ? row.accountId : null,
+        source: String(row.source ?? "manual"),
+        sourceVariant:
+          typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+        description: String(row.description ?? ""),
+        amount: textNumber(row.amount) ?? 0,
+        currency: String(row.currency ?? currency),
+        postedAt: iso(row.postedAt) ?? new Date(0).toISOString(),
+        categoryId: typeof row.categoryId === "string" ? row.categoryId : null,
+        categoryName: category?.name ?? null,
+        categoryGroup: category?.group ?? null,
+        status: String(row.status ?? "posted"),
+      };
+    },
+  );
+  const positions: FinancePositionRecord[] = rows("positions").map((row) => ({
+    id: String(row._id),
+    accountId: typeof row.accountId === "string" ? row.accountId : null,
+    source: String(row.source ?? "manual"),
+    sourceVariant:
+      typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    symbol: String(row.symbol ?? ""),
+    name: typeof row.name === "string" ? row.name : null,
+    quantity: textNumber(row.quantity) ?? 0,
+    marketValue: textNumber(row.marketValue),
+    averageCost: textNumber(row.averageCost),
+    currency: String(row.currency ?? currency),
+    observedAt: iso(row.observedAt),
+    updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+  }));
+  const activities: FinanceActivityRecord[] = rows("activities").map((row) => ({
+    id: String(row._id),
+    accountId: typeof row.accountId === "string" ? row.accountId : null,
+    source: String(row.source ?? "manual"),
+    sourceVariant:
+      typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    type: String(row.type ?? ""),
+    description: typeof row.description === "string" ? row.description : null,
+    amount: textNumber(row.amount),
+    currency: String(row.currency ?? currency),
+    symbol: typeof row.symbol === "string" ? row.symbol : null,
+    quantity: textNumber(row.quantity),
+    price: textNumber(row.price),
+    occurredAt: iso(row.occurredAt) ?? new Date(0).toISOString(),
+    settledAt: iso(row.settledAt),
+    status: String(row.status ?? "posted"),
+  }));
+  const history: FinanceHistoryRecord[] = rows("valueHistory").map((row) => ({
+    accountId: typeof row.accountId === "string" ? row.accountId : null,
+    date: String(row.date ?? ""),
+    equity: textNumber(row.equity) ?? 0,
+    cash: textNumber(row.cash),
+    currency: String(row.currency ?? currency),
+    source: String(row.source ?? "manual"),
+  }));
+  const returnRates: FinanceAccountReturnRateRecord[] = rows("returnRates").map(
+    (row) => ({
+      accountId: String(row.accountId),
+      source: String(row.source ?? "manual"),
+      sourceVariant:
+        typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+      timeframe: String(row.timeframe ?? ""),
+      returnPercent: textNumber(row.returnPercent) ?? 0,
+      asOf: typeof row.asOf === "string" ? row.asOf : null,
+      observedAt: iso(row.observedAt) ?? new Date(0).toISOString(),
+      updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+    }),
+  );
+  const imports: FinanceImportRecord[] = rows("imports").map((row) => ({
+    id: String(row._id),
+    source: String(row.source ?? "manual"),
+    sourceVariant:
+      typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    accountId: typeof row.accountId === "string" ? row.accountId : null,
+    status: String(row.status ?? "completed"),
+    importedCount:
+      textNumber(row.appliedCount) ?? textNumber(row.importedCount) ?? 0,
+    skippedCount: textNumber(row.skippedCount) ?? 0,
+    error: typeof row.error === "string" ? row.error : null,
+    startedAt: iso(row.startedAt) ?? new Date(0).toISOString(),
+    finishedAt: iso(row.finishedAt),
+    createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+  }));
+  const currencyCodes = new Set([
+    ...accounts.map((row) => row.currency),
+    ...transactions.map((row) => row.currency),
+    ...positions.map((row) => row.currency),
+  ]);
+  const byCurrency = [...currencyCodes].sort().map((code) => ({
+    currency: code,
+    accounts: accounts.filter((row) => row.currency === code),
+    balances: balances.filter((row) => row.currency === code),
+    transactions: transactions.filter((row) => row.currency === code),
+    positions: positions.filter((row) => row.currency === code),
+    activities: activities.filter((row) => row.currency === code),
+  }));
+  const sourceKeys = new Set(
+    accounts.map((row) => `${row.source}\0${row.sourceVariant ?? ""}`),
+  );
+  const sources = [...sourceKeys].map((key) => {
+    const [source, sourceVariant = ""] = key.split("\0");
+    const sourceAccounts = accounts.filter(
+      (row) =>
+        row.source === source && (row.sourceVariant ?? "") === sourceVariant,
+    );
+    const sourceTransactions = transactions.filter(
+      (row) =>
+        row.source === source && (row.sourceVariant ?? "") === sourceVariant,
+    );
+    const observed = sourceAccounts.flatMap((row) =>
+      row.observedAt ? [row.observedAt] : [],
+    );
+    const imported = imports
+      .filter(
+        (row) =>
+          row.source === source && (row.sourceVariant ?? "") === sourceVariant,
+      )
+      .flatMap((row) => (row.finishedAt ? [row.finishedAt] : []));
+    return {
+      source,
+      sourceVariant: sourceVariant || null,
+      accountCount: sourceAccounts.length,
+      transactionCount: sourceTransactions.length,
+      lastObservedAt: observed.sort().at(-1) ?? null,
+      lastImportedAt: imported.sort().at(-1) ?? null,
+    };
+  });
+  return {
+    accounts,
+    balances,
+    transactions,
+    categories,
+    positions,
+    activities,
+    history,
+    returnRates,
+    imports,
+    byCurrency,
+    sources,
+    conversion: {
+      currency:
+        typeof (raw.conversion as Record<string, unknown> | undefined)
+          ?.currency === "string"
+          ? String((raw.conversion as Record<string, unknown>).currency)
+          : currency,
+      asOf: iso((raw.conversion as Record<string, unknown> | undefined)?.asOf),
+      providers: Array.isArray(
+        (raw.conversion as Record<string, unknown> | undefined)?.providers,
+      )
+        ? (
+            (raw.conversion as Record<string, unknown>).providers as unknown[]
+          ).filter(
+            (provider): provider is string => typeof provider === "string",
+          )
+        : [],
+      stale:
+        (raw.conversion as Record<string, unknown> | undefined)?.stale === true,
+    },
+  };
+}
+
+async function findFinanceAccount(
+  accountId: string,
+): Promise<FinanceAccountRecord> {
+  const dashboard = await fetchFinanceDashboard("USD");
+  const account = dashboard.accounts.find((row) => row.id === accountId);
+  if (!account) throw new Error("Finance account not found");
+  return account;
 }

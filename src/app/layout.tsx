@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Instrument_Serif } from "next/font/google";
 import Script from "next/script";
 import { AppDataPreloader } from "@/components/providers/app-data-preloader";
-import { AppQueryEvents } from "@/components/providers/app-query-events";
 import { WebAppProviders } from "@/components/providers/web-app-providers";
 import "@fontsource/cossette-titre";
 import "./globals.css";
@@ -60,7 +59,6 @@ export default function RootLayout({
             Skip to main content
           </a>
           <AppDataPreloader />
-          <AppQueryEvents />
           {children}
           <Toaster />
         </WebAppProviders>

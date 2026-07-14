@@ -1,10 +1,9 @@
 import { createContext, use } from "react";
 import type {
-  FatSecretSettings,
   GoogleSettings,
   HevySettings,
-  NutritionixSettings,
   PinterestSettings,
+  SnapTradeSettings,
   WorkspaceSourceSettings,
 } from "@/features/integrations/components/card";
 
@@ -15,8 +14,7 @@ export type IntegrationSettingsState = {
   googleSettings: GoogleSettings | null;
   pinterestSettings: PinterestSettings | null;
   hevySettings: HevySettings | null;
-  nutritionixSettings: NutritionixSettings | null;
-  fatSecretSettings: FatSecretSettings | null;
+  snapTradeSettings: SnapTradeSettings | null;
   googleCanStartOAuth: boolean;
   pinterestCanStartOAuth: boolean;
   googleClientId: string;
@@ -24,20 +22,16 @@ export type IntegrationSettingsState = {
   pinterestClientId: string;
   pinterestClientSecret: string;
   hevyApiKey: string;
-  nutritionixAppId: string;
-  nutritionixApiKey: string;
-  fatSecretClientId: string;
-  fatSecretClientSecret: string;
+  snapTradeClientId: string;
+  snapTradeConsumerKey: string;
   syncResult: string | null;
   setGoogleClientId: (value: string) => void;
   setGoogleClientSecret: (value: string) => void;
   setPinterestClientId: (value: string) => void;
   setPinterestClientSecret: (value: string) => void;
   setHevyApiKey: (value: string) => void;
-  setNutritionixAppId: (value: string) => void;
-  setNutritionixApiKey: (value: string) => void;
-  setFatSecretClientId: (value: string) => void;
-  setFatSecretClientSecret: (value: string) => void;
+  setSnapTradeClientId: (value: string) => void;
+  setSnapTradeConsumerKey: (value: string) => void;
   addWorkspaceSourcePath: (path: string) => void;
   addWorkspaceSource: () => void;
   removeWorkspaceSource: (path: string) => void;

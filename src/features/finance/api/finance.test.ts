@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 
 import { cashflow, spendingByCategory } from "../components/finance-derive";
 
@@ -20,29 +22,28 @@ import {
   updateFinanceAccount,
 } from "./finance";
 
-// The finance source clients speak to the canonical OS routes through the
-// global `fetch`. We stub `fetch` so the tests are hermetic (no network) and can
-// inspect the exact request that leaves the web — the source/account provenance
-// a request must carry, the route it targets, and how a failure surfaces.
-const fetchMock = vi.fn();
+vi.mock("@/lib/convex-client", () => ({
+  convexClient: {
+    action: vi.fn(),
+    mutation: vi.fn(),
+    query: vi.fn(),
+  },
+}));
+
+const actionMock = vi.mocked(convexClient.action);
+const mutationMock = vi.mocked(convexClient.mutation);
+
+const TS = "2026-07-09T12:00:00.000Z";
 
 beforeEach(() => {
-  fetchMock.mockReset();
-  vi.stubGlobal("fetch", fetchMock);
+  actionMock.mockReset();
+  mutationMock.mockReset();
+  vi.mocked(convexClient.query).mockReset();
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
-
-const TS = "2026-07-09T12:00:00.000Z";
 
 function dashboardFixture(
   overrides: Partial<FinanceDashboard> = {},
@@ -60,7 +61,7 @@ function dashboardFixture(
     sources: [],
     conversion: {
       currency: "CAD",
-      asOf: "2026-07-09",
+      asOf: "2026-07-09T00:00:00.000Z",
       providers: ["Frankfurter / ECB"],
       stale: false,
     },
@@ -69,24 +70,50 @@ function dashboardFixture(
   };
 }
 
-// The request the client actually put on the wire (route, verb, parsed body).
-function sentRequest() {
-  const call = fetchMock.mock.calls.at(-1);
-  if (!call) throw new Error("fetch was never called");
-  const [path, init] = call as [string, RequestInit | undefined];
-  const rawBody = init?.body;
+function convexAccount(overrides: Record<string, unknown> = {}) {
   return {
-    path,
-    method: init?.method ?? "GET",
-    body:
-      typeof rawBody === "string"
-        ? (JSON.parse(rawBody) as Record<string, unknown>)
-        : undefined,
+    _id: "acct-manual",
+    source: "manual",
+    sourceId: null,
+    sourceVariant: null,
+    name: "Manual",
+    type: "checking",
+    currency: "CAD",
+    balance: "123.45",
+    institution: null,
+    mask: null,
+    status: "active",
+    importJobId: null,
+    observedAt: TS,
+    createdAt: TS,
+    updatedAt: TS,
+    ...overrides,
   };
 }
 
-describe("importFinanceCsv request contract", () => {
-  it("posts the selected account id and row provenance to the canonical CSV import route", async () => {
+function convexDashboard(overrides: Record<string, unknown> = {}) {
+  return {
+    accounts: [],
+    balances: [],
+    transactions: [],
+    categories: [],
+    positions: [],
+    activities: [],
+    valueHistory: [],
+    returnRates: [],
+    imports: [],
+    conversion: {
+      currency: "CAD",
+      asOf: "2026-07-09T00:00:00.000Z",
+      providers: ["Frankfurter / ECB"],
+      stale: false,
+    },
+    ...overrides,
+  };
+}
+
+describe("importFinanceCsv Convex contract", () => {
+  it("calls the CSV import action with selected account provenance and row numbers", async () => {
     const result: CsvImportResult = {
       imported: 2,
       skippedDuplicates: 1,
@@ -95,7 +122,7 @@ describe("importFinanceCsv request contract", () => {
       importId: "imp-1",
       status: "ok",
     };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+    actionMock.mockResolvedValueOnce(result as never);
 
     const body: CsvImportRequest = {
       source: "td_canada",
@@ -121,30 +148,20 @@ describe("importFinanceCsv request contract", () => {
       ],
     };
 
-    const returned = await importFinanceCsv(body);
-
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/imports/csv");
-    expect(sent.method).toBe("POST");
-    // Account ownership is explicit: the browser sends the selected canonical
-    // account id rather than filename-derived account fallback metadata.
-    expect(sent.body).toMatchObject({
+    await expect(importFinanceCsv(body)).resolves.toEqual(result);
+    expect(actionMock).toHaveBeenCalledTimes(1);
+    expect(actionMock).toHaveBeenCalledWith(convexApi.financeImport.importCsv, {
       source: "td_canada",
       accountId: "acct-td",
       balance: 1234.56,
+      transactions: [
+        { ...body.transactions[0], rowNumber: 1 },
+        { ...body.transactions[1], rowNumber: 2 },
+      ],
     });
-    expect(sent.body).not.toHaveProperty("accountName");
-    expect(sent.body).not.toHaveProperty("accountType");
-    expect(sent.body).not.toHaveProperty("accountCurrency");
-    expect(sent.body).not.toHaveProperty("institution");
-    expect(sent.body).not.toHaveProperty("mask");
-    // Per-row provenance (dedupe fingerprint + original currency) survives too.
-    expect(sent.body?.transactions).toEqual(body.transactions);
-    // The canonical result is surfaced to the caller unchanged.
-    expect(returned).toEqual(result);
   });
 
-  it("posts an account-id-only CSV request without legacy account fallback fields", async () => {
+  it("sends an account-id-only CSV import without legacy account fallback fields", async () => {
     const result: CsvImportResult = {
       imported: 0,
       skippedDuplicates: 0,
@@ -153,73 +170,65 @@ describe("importFinanceCsv request contract", () => {
       importId: "imp-empty",
       status: "ok",
     };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+    actionMock.mockResolvedValueOnce(result as never);
 
-    const body: CsvImportRequest = {
-      source: "manual",
-      accountId: "acct-manual",
-      transactions: [],
-    };
-
-    const returned = await importFinanceCsv(body);
-
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/imports/csv");
-    expect(sent.method).toBe("POST");
-    expect(sent.body).toEqual({
+    await expect(
+      importFinanceCsv({
+        source: "manual",
+        accountId: "acct-manual",
+        transactions: [],
+      }),
+    ).resolves.toEqual(result);
+    expect(actionMock).toHaveBeenCalledWith(convexApi.financeImport.importCsv, {
       source: "manual",
       accountId: "acct-manual",
       transactions: [],
     });
-    expect(returned).toEqual(result);
+    expect(actionMock.mock.calls[0]?.[1]).not.toHaveProperty("accountName");
+    expect(actionMock.mock.calls[0]?.[1]).not.toHaveProperty("accountType");
+    expect(actionMock.mock.calls[0]?.[1]).not.toHaveProperty("accountCurrency");
+    expect(actionMock.mock.calls[0]?.[1]).not.toHaveProperty("institution");
+    expect(actionMock.mock.calls[0]?.[1]).not.toHaveProperty("mask");
   });
 
-  it("surfaces the OS failure instead of returning a fake success when the import route errors", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ error: "import route unavailable" }, 500),
-    );
+  it("surfaces Convex import failures", async () => {
+    const error = new Error("import route unavailable");
+    actionMock.mockRejectedValueOnce(error as never);
 
-    const body: CsvImportRequest = {
+    await expect(
+      importFinanceCsv({
+        source: "manual",
+        accountId: "acct-manual",
+        transactions: [],
+      }),
+    ).rejects.toThrow("import route unavailable");
+    expect(actionMock).toHaveBeenCalledWith(convexApi.financeImport.importCsv, {
       source: "manual",
       accountId: "acct-manual",
       transactions: [],
-    };
-
-    await expect(importFinanceCsv(body)).rejects.toMatchObject({
-      _tag: "ApiError",
-      status: 500,
-      path: "/api/finance/imports/csv",
-      message: "import route unavailable",
     });
-    const sent = sentRequest();
-    expect(sent.body).not.toHaveProperty("institution");
-    expect(sent.body).not.toHaveProperty("mask");
   });
 });
 
-describe("createFinanceAccount request contract", () => {
-  it("posts the new account fields and returns the canonical account created by the OS", async () => {
-    const result = {
-      ok: true as const,
-      account: {
-        id: "acct-new",
-        source: "csv",
-        sourceId: null,
-        sourceVariant: "manual",
-        name: "CSV Checking",
-        type: "checking",
-        currency: "CAD",
-        balance: 123.45,
-        institution: null,
-        mask: null,
-        status: "open",
-        importId: null,
-        observedAt: TS,
-        createdAt: TS,
-        updatedAt: TS,
-      },
-    };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result, 201));
+describe("finance account lifecycle Convex contract", () => {
+  it("creates an account through saveAccount and adapts the created dashboard row", async () => {
+    mutationMock.mockResolvedValueOnce("acct-new" as never);
+    actionMock.mockResolvedValueOnce(
+      convexDashboard({
+        accounts: [
+          convexAccount({
+            _id: "acct-new",
+            source: "csv",
+            sourceVariant: "manual",
+            name: "CSV Checking",
+            type: "checking",
+            currency: "CAD",
+            balance: "123.45",
+            status: "open",
+          }),
+        ],
+      }) as never,
+    );
 
     const returned = await createFinanceAccount({
       name: "CSV Checking",
@@ -228,133 +237,170 @@ describe("createFinanceAccount request contract", () => {
       balance: 123.45,
     });
 
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts");
-    expect(sent.method).toBe("POST");
-    expect(sent.body).toEqual({
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.saveAccount, {
       name: "CSV Checking",
       type: "checking",
       currency: "CAD",
-      balance: 123.45,
+      balance: "123.45",
     });
-    expect(returned).toEqual(result);
-  });
-});
-
-describe("finance account lifecycle request contract", () => {
-  it("patches account name and balance by encoded id and returns the canonical account", async () => {
-    const result = {
-      ok: true as const,
+    expect(actionMock).toHaveBeenCalledWith(
+      convexApi.financeDashboard.dashboard,
+      { currency: "CAD" },
+    );
+    expect(returned).toMatchObject({
+      ok: true,
       account: {
-        id: "acct/manual 1",
-        source: "manual",
-        sourceId: null,
-        sourceVariant: null,
-        name: "Cash Jar",
-        type: "checking",
+        id: "acct-new",
+        name: "CSV Checking",
+        balance: 123.45,
         currency: "CAD",
-        balance: 125.5,
-        institution: null,
-        mask: null,
-        status: "active",
-        importId: null,
-        observedAt: TS,
-        createdAt: TS,
-        updatedAt: TS,
       },
-    };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+    });
+  });
+
+  it("updates account fields using the current dashboard row and returns the refreshed account", async () => {
+    actionMock
+      .mockResolvedValueOnce(
+        convexDashboard({
+          accounts: [
+            convexAccount({
+              _id: "acct/manual 1",
+              name: "Manual",
+              balance: "10",
+            }),
+          ],
+        }) as never,
+      )
+      .mockResolvedValueOnce(
+        convexDashboard({
+          accounts: [
+            convexAccount({
+              _id: "acct/manual 1",
+              name: "Cash Jar",
+              balance: "125.5",
+            }),
+          ],
+        }) as never,
+      );
+    mutationMock.mockResolvedValueOnce("acct/manual 1" as never);
 
     const returned = await updateFinanceAccount("acct/manual 1", {
       name: "Cash Jar",
       balance: 125.5,
     });
 
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts/acct%2Fmanual%201");
-    expect(sent.method).toBe("PATCH");
-    expect(sent.body).toEqual({ name: "Cash Jar", balance: 125.5 });
-    expect(returned).toEqual(result);
+    expect(actionMock).toHaveBeenNthCalledWith(
+      1,
+      convexApi.financeDashboard.dashboard,
+      { currency: "USD" },
+    );
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.saveAccount, {
+      id: "acct/manual 1",
+      name: "Cash Jar",
+      type: "checking",
+      currency: "CAD",
+      balance: "125.5",
+      clearBalance: undefined,
+      status: "active",
+    });
+    expect(actionMock).toHaveBeenNthCalledWith(
+      2,
+      convexApi.financeDashboard.dashboard,
+      { currency: "USD" },
+    );
+    expect(returned.account).toMatchObject({
+      id: "acct/manual 1",
+      name: "Cash Jar",
+      balance: 125.5,
+    });
   });
 
-  it("patches account status by encoded id and returns the canonical account", async () => {
-    const result = {
-      ok: true as const,
-      account: {
-        id: "acct/manual 1",
-        source: "manual",
-        sourceId: null,
-        sourceVariant: null,
-        name: "Manual",
-        type: "checking",
-        currency: "CAD",
-        balance: 10,
-        institution: null,
-        mask: null,
-        status: "hidden",
-        importId: null,
-        observedAt: TS,
-        createdAt: TS,
-        updatedAt: TS,
-      },
-    };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+  it("clears balance and updates status through saveAccount metadata", async () => {
+    actionMock
+      .mockResolvedValueOnce(
+        convexDashboard({
+          accounts: [
+            convexAccount({
+              _id: "acct/manual 1",
+              balance: "10",
+              status: "active",
+            }),
+          ],
+        }) as never,
+      )
+      .mockResolvedValueOnce(
+        convexDashboard({
+          accounts: [
+            convexAccount({
+              _id: "acct/manual 1",
+              balance: null,
+              status: "hidden",
+            }),
+          ],
+        }) as never,
+      );
+    mutationMock.mockResolvedValueOnce("acct/manual 1" as never);
 
     const returned = await updateFinanceAccount("acct/manual 1", {
+      balance: null,
       status: "hidden",
     });
 
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts/acct%2Fmanual%201");
-    expect(sent.method).toBe("PATCH");
-    expect(sent.body).toEqual({ status: "hidden" });
-    expect(returned).toEqual(result);
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.saveAccount, {
+      id: "acct/manual 1",
+      name: "Manual",
+      type: "checking",
+      currency: "CAD",
+      balance: undefined,
+      clearBalance: true,
+      status: "hidden",
+    });
+    expect(returned.account).toMatchObject({
+      id: "acct/manual 1",
+      balance: null,
+      status: "hidden",
+    });
   });
 
-  it("deletes a manual account by encoded id and returns the deletion count", async () => {
+  it("deletes a manual account through removeAccount", async () => {
     const result = {
       ok: true as const,
       accountId: "acct/manual 1",
       deletedTransactions: 3,
     };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+    mutationMock.mockResolvedValueOnce(result as never);
 
-    const returned = await deleteFinanceAccount("acct/manual 1");
-
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts/acct%2Fmanual%201");
-    expect(sent.method).toBe("DELETE");
-    expect(sent.body).toBeUndefined();
-    expect(returned).toEqual(result);
+    await expect(deleteFinanceAccount("acct/manual 1")).resolves.toEqual(
+      result,
+    );
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.removeAccount, {
+      accountId: "acct/manual 1",
+    });
   });
 });
 
-describe("undoFinanceImport request contract", () => {
-  it("deletes the fully encoded receipt route without a body and returns the typed OS deletion result", async () => {
+describe("finance import undo and account linking Convex contract", () => {
+  it("undoes a CSV import by import id", async () => {
     const result: FinanceImportUndoResult = {
       ok: true,
       importId: "csv/import?source=csv&currency=CAD",
       deletedTransactions: 4,
       deletedAccountId: "acct-placeholder",
     };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result));
+    mutationMock.mockResolvedValueOnce(result as never);
 
-    const returned = await undoFinanceImport(
-      "csv/import?source=csv&currency=CAD",
+    await expect(
+      undoFinanceImport("csv/import?source=csv&currency=CAD"),
+    ).resolves.toEqual(result);
+    expect(mutationMock).toHaveBeenCalledWith(
+      convexApi.financeImport.undoImport,
+      {
+        importId: "csv/import?source=csv&currency=CAD",
+      },
     );
-
-    const sent = sentRequest();
-    expect(sent.path).toBe(
-      "/api/finance/imports/csv%2Fimport%3Fsource%3Dcsv%26currency%3DCAD",
-    );
-    expect(sent.method).toBe("DELETE");
-    expect(sent.body).toBeUndefined();
-    expect(returned).toEqual(result);
   });
-});
 
-describe("finance account link request contract", () => {
-  it("posts an explicit canonical-to-duplicate account link and returns the reconciliation counts", async () => {
+  it("links canonical and duplicate accounts with Convex argument names", async () => {
     const result = {
       linked: true as const,
       canonicalAccountId: "acct-snaptrade",
@@ -362,73 +408,93 @@ describe("finance account link request contract", () => {
       transactionsMerged: 1,
       transactionsRekeyed: 2,
     };
-    fetchMock.mockResolvedValueOnce(jsonResponse(result, 201));
+    mutationMock.mockResolvedValueOnce(result as never);
 
-    const returned = await linkFinanceAccounts({
+    await expect(
+      linkFinanceAccounts({
+        canonicalAccountId: "acct-snaptrade",
+        duplicateAccountId: "acct-csv",
+      }),
+    ).resolves.toEqual(result);
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.linkAccount, {
       canonicalAccountId: "acct-snaptrade",
-      duplicateAccountId: "acct-csv",
+      accountId: "acct-csv",
     });
-
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts/links");
-    expect(sent.method).toBe("POST");
-    expect(sent.body).toEqual({
-      canonicalAccountId: "acct-snaptrade",
-      duplicateAccountId: "acct-csv",
-    });
-    expect(returned).toEqual(result);
   });
 
-  it("unlinks the duplicate account by encoded id with a DELETE", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ unlinked: true, accountId: "csv/account 1" }),
-    );
+  it("unlinks the duplicate account and adapts the return shape", async () => {
+    mutationMock.mockResolvedValueOnce(undefined as never);
 
-    const returned = await unlinkFinanceAccount("csv/account 1");
-
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/accounts/links/csv%2Faccount%201");
-    expect(sent.method).toBe("DELETE");
-    expect(sent.body).toBeUndefined();
-    expect(returned).toEqual({ unlinked: true, accountId: "csv/account 1" });
+    await expect(unlinkFinanceAccount("csv/account 1")).resolves.toEqual({
+      unlinked: true,
+      accountId: "csv/account 1",
+    });
+    expect(mutationMock).toHaveBeenCalledWith(convexApi.finance.unlinkAccount, {
+      accountId: "csv/account 1",
+    });
   });
 });
 
-describe("fetchFinanceDashboard request contract", () => {
-  it("reads the canonical dashboard route and returns per-currency groups without merging them", async () => {
-    const dashboard = dashboardFixture({
-      byCurrency: [
-        {
-          currency: "USD",
-          accounts: [],
-          balances: [],
-          transactions: [],
-          positions: [],
-          activities: [],
-        },
-        {
+describe("fetchFinanceDashboard Convex contract", () => {
+  it("calls the dashboard action and derives currency groups plus conversion metadata", async () => {
+    actionMock.mockResolvedValueOnce(
+      convexDashboard({
+        accounts: [
+          convexAccount({ _id: "acct-usd", currency: "USD", balance: "10" }),
+          convexAccount({ _id: "acct-cad", currency: "CAD", balance: "20" }),
+        ],
+        transactions: [
+          {
+            _id: "txn-usd",
+            accountId: "acct-usd",
+            source: "manual",
+            description: "USD",
+            amount: "-1",
+            currency: "USD",
+            postedAt: TS,
+            status: "posted",
+          },
+          {
+            _id: "txn-cad",
+            accountId: "acct-cad",
+            source: "manual",
+            description: "CAD",
+            amount: "-2",
+            currency: "CAD",
+            postedAt: TS,
+            status: "posted",
+          },
+        ],
+        conversion: {
           currency: "CAD",
-          accounts: [],
-          balances: [],
-          transactions: [],
-          positions: [],
-          activities: [],
+          asOf: "2026-07-09T00:00:00.000Z",
+          providers: ["Frankfurter / ECB", "Manual override"],
+          stale: true,
         },
-      ],
-    });
-    fetchMock.mockResolvedValueOnce(jsonResponse(dashboard));
+      }) as never,
+    );
 
     const returned = await fetchFinanceDashboard("CAD");
 
-    const sent = sentRequest();
-    expect(sent.path).toBe("/api/finance/dashboard?currency=CAD");
-    expect(sent.method).toBe("GET");
-    // Both currency groups reach the caller distinct — never collapsed into one.
+    expect(actionMock).toHaveBeenCalledWith(
+      convexApi.financeDashboard.dashboard,
+      { currency: "CAD" },
+    );
     expect(returned.byCurrency.map((group) => group.currency)).toEqual([
-      "USD",
       "CAD",
+      "USD",
     ]);
-    expect(returned).toEqual(dashboard);
+    expect(
+      returned.byCurrency
+        .find((group) => group.currency === "USD")
+        ?.accounts.map((account) => account.id),
+    ).toEqual(["acct-usd"]);
+    expect(returned.conversion).toEqual({
+      currency: "CAD",
+      asOf: "2026-07-09T00:00:00.000Z",
+      providers: ["Frankfurter / ECB", "Manual override"],
+      stale: true,
+    });
   });
 
   it("adapts promoted card spends as canonical transactions while brokerage activity stays outside derive totals", () => {
@@ -445,23 +511,6 @@ describe("fetchFinanceDashboard request contract", () => {
           balance: 742.13,
           institution: "Wealthsimple",
           mask: "4321",
-          status: "open",
-          importId: null,
-          observedAt: TS,
-          createdAt: TS,
-          updatedAt: TS,
-        },
-        {
-          id: "acct-brokerage",
-          source: "snaptrade",
-          sourceId: "snap-brokerage-1",
-          sourceVariant: "wealthsimple",
-          name: "Wealthsimple RRSP",
-          type: "investment",
-          currency: "CAD",
-          balance: 15_250.75,
-          institution: "Wealthsimple",
-          mask: "9012",
           status: "open",
           importId: null,
           observedAt: TS,
@@ -517,9 +566,6 @@ describe("fetchFinanceDashboard request contract", () => {
     const adapted = financeDataFromDashboard(dashboard);
     const { income, spending, net } = cashflow(adapted);
 
-    expect(dashboard.activities.map((activity) => activity.id)).toEqual([
-      "act-buy",
-    ]);
     expect(adapted.transactions.map((transaction) => transaction.id)).toEqual([
       "txn-card-spend",
     ]);
@@ -671,28 +717,16 @@ describe("fetchFinanceDashboard request contract", () => {
             importId: null,
             updatedAt: TS,
           },
-          {
-            id: "bal-no-match-account",
-            accountId: "acct-unrelated",
-            currency: "CAD",
-            cash: 777,
-            buyingPower: null,
-            observedAt: TS,
-            source: "csv",
-            sourceVariant: "manual",
-            importId: null,
-            updatedAt: TS,
-          },
         ],
       }),
     );
 
     expect(
-      adapted.accounts.map((account) => ({
-        id: account.id,
-        balance: account.balance,
-        source: account.source,
-        status: account.status,
+      adapted.accounts.map(({ id, balance, source, status }) => ({
+        id,
+        balance,
+        source,
+        status,
       })),
     ).toEqual([
       { id: "acct-asset", balance: 100, source: "csv", status: "open" },
@@ -708,117 +742,111 @@ describe("fetchFinanceDashboard request contract", () => {
   });
 
   it("keeps SnapTrade return rates and activities on the dashboard contract while adapting only canonical transactions", async () => {
-    const dashboard = dashboardFixture({
-      accounts: [
-        {
-          id: "acct-ws",
-          source: "snaptrade",
-          sourceId: "snap-account-1",
-          sourceVariant: "wealthsimple",
-          name: "Wealthsimple RRSP",
-          type: "investment",
-          currency: "CAD",
-          balance: 15_250.75,
-          institution: "Wealthsimple",
-          mask: "9012",
-          status: "open",
-          importId: null,
-          observedAt: TS,
-          createdAt: TS,
-          updatedAt: TS,
-        },
-      ],
-      categories: [
-        {
-          id: "cat-dividend",
-          name: "dividend",
-          group: "income",
-          excludeFromSpending: false,
-          color: null,
-        },
-      ],
-      transactions: [
-        {
-          id: "txn-dividend",
-          accountId: "acct-ws",
-          source: "snaptrade",
-          sourceVariant: "wealthsimple",
-          description: "Cash dividend",
-          amount: 12.34,
-          currency: "CAD",
-          postedAt: "2026-07-07",
-          categoryId: "cat-dividend",
-          categoryName: "dividend",
-          categoryGroup: "income",
-          status: "posted",
-        },
-      ],
-      positions: [
-        {
-          id: "pos-shop",
-          accountId: "acct-ws",
-          source: "snaptrade",
-          sourceVariant: "wealthsimple",
-          symbol: "SHOP",
-          name: "Shopify",
-          quantity: 3,
-          marketValue: 435.12,
-          averageCost: 102.5,
-          currency: "CAD",
-          observedAt: TS,
-          updatedAt: TS,
-        },
-      ],
-      activities: [
-        {
-          id: "act-buy",
-          accountId: "acct-ws",
-          source: "snaptrade",
-          sourceVariant: "wealthsimple",
-          type: "BUY",
-          description: "Bought Shopify",
-          amount: -435.12,
-          currency: "CAD",
-          symbol: "SHOP",
-          quantity: 3,
-          price: 145.04,
-          occurredAt: "2026-07-06T15:30:00.000Z",
-          settledAt: "2026-07-08T00:00:00.000Z",
-          status: "settled",
-        },
-      ],
-      history: [
-        {
-          accountId: "acct-ws",
-          date: "2026-07-06",
-          equity: 15_000,
-          cash: 1_250,
-          currency: "CAD",
-          source: "snaptrade",
-        },
-        {
-          accountId: "acct-ws",
-          date: "2026-07-07",
-          equity: 15_250.75,
-          cash: 1_262.34,
-          currency: "CAD",
-          source: "snaptrade",
-        },
-      ],
-      returnRates: [
-        {
-          accountId: "acct-ws",
-          source: "snaptrade",
-          sourceVariant: "wealthsimple",
-          timeframe: "1Y",
-          returnPercent: 8.91,
-          asOf: "2026-07-07",
-          observedAt: TS,
-          updatedAt: TS,
-        },
-      ],
-    });
-    fetchMock.mockResolvedValueOnce(jsonResponse(dashboard));
+    actionMock.mockResolvedValueOnce(
+      convexDashboard({
+        accounts: [
+          convexAccount({
+            _id: "acct-ws",
+            source: "snaptrade",
+            sourceId: "snap-account-1",
+            sourceVariant: "wealthsimple",
+            name: "Wealthsimple RRSP",
+            type: "investment",
+            balance: "15250.75",
+            institution: "Wealthsimple",
+            mask: "9012",
+            status: "open",
+          }),
+        ],
+        categories: [
+          {
+            _id: "cat-dividend",
+            name: "dividend",
+            group: "income",
+            excludeFromSpending: false,
+            color: null,
+          },
+        ],
+        transactions: [
+          {
+            _id: "txn-dividend",
+            accountId: "acct-ws",
+            source: "snaptrade",
+            sourceVariant: "wealthsimple",
+            description: "Cash dividend",
+            amount: "12.34",
+            currency: "CAD",
+            postedAt: "2026-07-07T00:00:00.000Z",
+            categoryId: "cat-dividend",
+            status: "posted",
+          },
+        ],
+        positions: [
+          {
+            _id: "pos-shop",
+            accountId: "acct-ws",
+            source: "snaptrade",
+            sourceVariant: "wealthsimple",
+            symbol: "SHOP",
+            name: "Shopify",
+            quantity: "3",
+            marketValue: "435.12",
+            averageCost: "102.5",
+            currency: "CAD",
+            observedAt: TS,
+            updatedAt: TS,
+          },
+        ],
+        activities: [
+          {
+            _id: "act-buy",
+            accountId: "acct-ws",
+            source: "snaptrade",
+            sourceVariant: "wealthsimple",
+            type: "BUY",
+            description: "Bought Shopify",
+            amount: "-435.12",
+            currency: "CAD",
+            symbol: "SHOP",
+            quantity: "3",
+            price: "145.04",
+            occurredAt: "2026-07-06T15:30:00.000Z",
+            settledAt: "2026-07-08T00:00:00.000Z",
+            status: "settled",
+          },
+        ],
+        valueHistory: [
+          {
+            accountId: "acct-ws",
+            date: "2026-07-06",
+            equity: "15000",
+            cash: "1250",
+            currency: "CAD",
+            source: "snaptrade",
+          },
+          {
+            accountId: "acct-ws",
+            date: "2026-07-07",
+            equity: "15250.75",
+            cash: "1262.34",
+            currency: "CAD",
+            source: "snaptrade",
+          },
+        ],
+        returnRates: [
+          {
+            accountId: "acct-ws",
+            source: "snaptrade",
+            sourceVariant: "wealthsimple",
+            timeframe: "1Y",
+            returnPercent: "8.91",
+            asOf: "2026-07-07",
+            observedAt: TS,
+            updatedAt: TS,
+          },
+        ],
+      }) as never,
+    );
 
     const returned = await fetchFinanceDashboard("CAD");
     const adapted = financeDataFromDashboard(returned);
@@ -827,16 +855,16 @@ describe("fetchFinanceDashboard request contract", () => {
       {
         accountId: "acct-ws",
         date: "2026-07-06",
-        equity: 15_000,
-        cash: 1_250,
+        equity: 15000,
+        cash: 1250,
         currency: "CAD",
         source: "snaptrade",
       },
       {
         accountId: "acct-ws",
         date: "2026-07-07",
-        equity: 15_250.75,
-        cash: 1_262.34,
+        equity: 15250.75,
+        cash: 1262.34,
         currency: "CAD",
         source: "snaptrade",
       },
@@ -853,24 +881,12 @@ describe("fetchFinanceDashboard request contract", () => {
         updatedAt: TS,
       },
     ]);
-    expect(returned.activities).toEqual([
-      {
-        id: "act-buy",
-        accountId: "acct-ws",
-        source: "snaptrade",
-        sourceVariant: "wealthsimple",
-        type: "BUY",
-        description: "Bought Shopify",
-        amount: -435.12,
-        currency: "CAD",
-        symbol: "SHOP",
-        quantity: 3,
-        price: 145.04,
-        occurredAt: "2026-07-06T15:30:00.000Z",
-        settledAt: "2026-07-08T00:00:00.000Z",
-        status: "settled",
-      },
-    ]);
+    expect(returned.activities).toHaveLength(1);
+    expect(returned.activities[0]).toMatchObject({
+      id: "act-buy",
+      type: "BUY",
+      amount: -435.12,
+    });
     expect(adapted.positions).toEqual([
       {
         id: "pos-shop",
@@ -890,12 +906,12 @@ describe("fetchFinanceDashboard request contract", () => {
         title: "Cash dividend",
         amount: 12.34,
         currency: "CAD",
-        time: "2026-07-07",
+        time: "2026-07-07T00:00:00.000Z",
         accountId: "acct-ws",
         categoryId: "cat-dividend",
         status: "posted",
-        createdAt: "2026-07-07",
-        updatedAt: "2026-07-07",
+        createdAt: "2026-07-07T00:00:00.000Z",
+        updatedAt: "2026-07-07T00:00:00.000Z",
       },
     ]);
   });

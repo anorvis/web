@@ -1,9 +1,12 @@
 "use client";
 
+import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { ConvexSession } from "@/components/providers/convex-session";
 import { ThemeProvider } from "@/components/utils/theme-provider";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { convexClient } from "@/lib/convex-client";
 import { createQueryClient } from "@/lib/query/client";
 import {
   restorePersistedQueryCache,
@@ -19,15 +22,19 @@ export function WebAppProviders({ children }: { children: ReactNode }) {
   });
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        {children}
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ConvexAuthProvider client={convexClient}>
+      <ConvexSession>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            {children}
+          </ThemeProvider>
+        </QueryClientProvider>
+      </ConvexSession>
+    </ConvexAuthProvider>
   );
 }

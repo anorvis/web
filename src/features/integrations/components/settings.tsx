@@ -39,7 +39,7 @@ export function Settings() {
       return (
         <OAuthSettings
           label="Pinterest"
-          description="Enter your Pinterest OAuth client ID and client secret. Anorvis stores them through the OS secrets manager, then uses OAuth to read boards and Pin images for Life moodboards."
+          description="Enter your Pinterest OAuth client ID and client secret. Anorvis stores them encrypted in Convex, then uses OAuth to read boards and Pin images for Life moodboards."
           clientId={props.pinterestClientId}
           clientSecret={props.pinterestClientSecret}
           hasClientId={props.pinterestSettings?.hasClientId}
@@ -52,10 +52,8 @@ export function Settings() {
       );
     case "hevy":
       return <HevySettings {...props} />;
-    case "nutritionix":
-      return <NutritionixSettings {...props} />;
-    case "fatsecret":
-      return <FatSecretSettings {...props} />;
+    case "snaptrade":
+      return <SnapTradeSettings {...props} />;
     default:
       return null;
   }
@@ -294,66 +292,34 @@ function HevySettings(props: SettingsProps) {
   );
 }
 
-function NutritionixSettings(props: SettingsProps) {
+function SnapTradeSettings(props: SettingsProps) {
   return (
     <CredentialSettings
-      title="// nutritionix credentials"
-      description="Enter your Nutritionix app ID and API key. Anorvis stores them through the OS secrets manager for food search."
-      fields={[
-        {
-          label: "app id",
-          value: props.nutritionixAppId,
-          onChange: props.setNutritionixAppId,
-          placeholder: props.nutritionixSettings?.hasAppId
-            ? "saved app id"
-            : "app id",
-          ariaLabel: "nutritionix app id",
-        },
-        {
-          label: "api key",
-          type: "password",
-          value: props.nutritionixApiKey,
-          onChange: props.setNutritionixApiKey,
-          placeholder: props.nutritionixSettings?.hasApiKey
-            ? "saved api key"
-            : "api key",
-          ariaLabel: "nutritionix api key",
-        },
-      ]}
-      connected={props.nutritionixSettings?.connected}
-      lastCheckedAt={props.nutritionixSettings?.lastCheckedAt}
-    />
-  );
-}
-
-function FatSecretSettings(props: SettingsProps) {
-  return (
-    <CredentialSettings
-      title="// fatsecret credentials"
-      description="Enter your FatSecret client ID and client secret. Anorvis stores them through the OS secrets manager for food search."
+      title="// snaptrade credentials"
+      description="Enter your SnapTrade client ID and consumer key. Anorvis stores them in Convex, then opens the SnapTrade connection portal."
       fields={[
         {
           label: "client id",
-          value: props.fatSecretClientId,
-          onChange: props.setFatSecretClientId,
-          placeholder: props.fatSecretSettings?.hasClientId
+          value: props.snapTradeClientId,
+          onChange: props.setSnapTradeClientId,
+          placeholder: props.snapTradeSettings?.hasClientId
             ? "saved client id"
             : "client id",
-          ariaLabel: "fatsecret client id",
+          ariaLabel: "snaptrade client id",
         },
         {
-          label: "client secret",
+          label: "consumer key",
           type: "password",
-          value: props.fatSecretClientSecret,
-          onChange: props.setFatSecretClientSecret,
-          placeholder: props.fatSecretSettings?.hasClientSecret
-            ? "saved client secret"
-            : "client secret",
-          ariaLabel: "fatsecret client secret",
+          value: props.snapTradeConsumerKey,
+          onChange: props.setSnapTradeConsumerKey,
+          placeholder: props.snapTradeSettings?.hasConsumerKey
+            ? "saved consumer key"
+            : "consumer key",
+          ariaLabel: "snaptrade consumer key",
         },
       ]}
-      connected={props.fatSecretSettings?.connected}
-      lastCheckedAt={props.fatSecretSettings?.lastCheckedAt}
+      connected={props.snapTradeSettings?.connected}
+      lastCheckedAt={props.snapTradeSettings?.lastCheckedAt}
     />
   );
 }

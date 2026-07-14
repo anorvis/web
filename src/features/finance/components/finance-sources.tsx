@@ -49,7 +49,7 @@ const CSV_SETUP_STEPS: SourceStep[] = [
   },
   {
     title: "Import canonical records",
-    body: "Send normalized records to anorvis-os. Duplicate fingerprints are skipped safely.",
+    body: "Send normalized records to Convex. Duplicate fingerprints are skipped safely.",
   },
 ];
 
@@ -61,8 +61,8 @@ const SNAPTRADE_SETUP_STEPS: SourceStep[] = [
     hrefLabel: "open SnapTrade dashboard",
   },
   {
-    title: "Save keys locally",
-    body: "Paste both keys here. anorvis-os stores them through the local secret manager and never returns them.",
+    title: "Save encrypted keys",
+    body: "Paste both keys here. Convex encrypts them at rest and never returns them.",
   },
   {
     title: "Connect and sync",
@@ -134,7 +134,7 @@ export function FinanceSources({
       const receiptName = `${receiptLabel} receipt ${record.id}`;
       const transactionCount = countLabel(record.importedCount, "transaction");
       const confirmed = window.confirm(
-        `Remove ${transactionCount} from ${receiptName}? Undo removes only transactions from this import. A legacy CSV placeholder account is deleted only when anorvis-os proves it is now an orphan.`,
+        `Remove ${transactionCount} from ${receiptName}? Undo removes only transactions from this import. A legacy CSV placeholder account is deleted only when Convex proves it is now an orphan.`,
       );
       if (!confirmed) return;
 
@@ -172,7 +172,7 @@ export function FinanceSources({
       setClientId("");
       setConsumerKey("");
       setSnapMessage(
-        "keys saved locally through anorvis-os · open the connection portal to link a brokerage read-only",
+        "keys encrypted in Convex · open the connection portal to link a brokerage read-only",
       );
       await settingsQuery.refetch();
     } catch (error) {
@@ -300,9 +300,9 @@ export function FinanceSources({
       }
     >
       <p className={workspacePageStyles.cardBodyText}>
-        Finance records persist in anorvis-os. Import bank or card CSV files, or
+        Finance records persist in Convex. Import bank or card CSV files, or
         connect SnapTrade (Personal) for read-only brokerage data. Records
-        survive reloads and are grouped by their original currency.
+        survive reloads and remain grouped by their original currency.
       </p>
 
       {hasAnySource ? (
@@ -350,7 +350,7 @@ export function FinanceSources({
         }
         description={
           selectedSource === "csv"
-            ? "Choose a statement file only after selecting CSV as the source. Parsed records persist through anorvis-os."
+            ? "Choose a statement file only after selecting CSV as the source. Parsed records persist through Convex."
             : selectedSource === "snaptrade"
               ? "Configure SnapTrade Personal for brokerage sync. Anorvis cannot trade or move money."
               : "Choose one Finance source to configure. Inputs stay hidden until you select a source."
@@ -421,7 +421,7 @@ export function FinanceSources({
                       </p>
                       <p className={workspacePageStyles.cardBodyText}>
                         Files are parsed in your browser, then normalized
-                        records persist through anorvis-os under the account you
+                        records persist through Convex under the account you
                         explicitly select or create. Legacy CSV placeholder
                         accounts are hidden from this list.
                       </p>

@@ -9,21 +9,23 @@ import {
 import { integrationStyles, workspacePageStyles } from "@anorvis/ui/styles";
 import { cn } from "@anorvis/ui/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { WorkspaceDialog } from "@/components/layout/workspace-dialog";
 import {
-  deleteIntegrationAction,
   fetchIntegrationSettings,
   postIntegrationAction,
   saveIntegrationSettings,
+  startGoogleOAuth,
+  startPinterestOAuth,
 } from "@/features/integrations/api/integrations";
 import { IntegrationSettingsProvider } from "@/features/integrations/components/actions";
 import { IntegrationDialogActions } from "@/features/integrations/components/dialog-actions";
 import { PROVIDER_MARK } from "@/features/integrations/components/provider-mark";
 import { Settings } from "@/features/integrations/components/settings";
 import type { IntegrationCatalogEntry } from "@/features/overview/types/overview";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import { clearLifeReadCache } from "@/lib/life-intelligence/life-read-cache";
 import { queryKeys } from "@/lib/query/keys";
 import { getStatusTone } from "@/lib/workspace/view-utils";
@@ -52,6 +54,14 @@ type HevySyncSummary = {
   measurementsCreated?: number;
   measurementsUpdated?: number;
 };
+
+export type SnapTradeSettings = {
+  connected: boolean;
+  hasClientId: boolean;
+  hasConsumerKey: boolean;
+  lastCheckedAt: string | null;
+  secretProvider: string | null;
+};
 function hevyMeasurementSummary(summary: HevySyncSummary): string {
   return summary.measurementsFetched === undefined
     ? "body measurements unavailable"
@@ -71,51 +81,27 @@ type OAuthSettings = {
 export type GoogleSettings = OAuthSettings;
 export type PinterestSettings = OAuthSettings;
 
-export type NutritionixSettings = {
-  connected: boolean;
-  hasAppId: boolean;
-  hasApiKey: boolean;
-  lastCheckedAt: string | null;
-  secretProvider: string | null;
-};
-
-export type FatSecretSettings = {
-  connected: boolean;
-  hasClientId: boolean;
-  hasClientSecret: boolean;
-  lastCheckedAt: string | null;
-  secretProvider: string | null;
-};
-
 function useIntegrationCardController(integration: IntegrationCatalogEntry) {
   const { refresh } = useRouter();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState<WorkspaceSourceSettings | null>(
-    null,
-  );
+  const settings: WorkspaceSourceSettings | null = null;
   const [googleSettings, setGoogleSettings] = useState<GoogleSettings | null>(
     null,
   );
   const [pinterestSettings, setPinterestSettings] =
     useState<PinterestSettings | null>(null);
   const [hevySettings, setHevySettings] = useState<HevySettings | null>(null);
-  const [nutritionixSettings, setNutritionixSettings] =
-    useState<NutritionixSettings | null>(null);
-  const [fatSecretSettings, setFatSecretSettings] =
-    useState<FatSecretSettings | null>(null);
-  const vaultPath = useRef("");
-  const notesDirectory = useRef("");
+  const [snapTradeSettings, setSnapTradeSettings] =
+    useState<SnapTradeSettings | null>(null);
   const [hevyApiKey, setHevyApiKey] = useState("");
   const [googleClientId, setGoogleClientId] = useState("");
   const [googleClientSecret, setGoogleClientSecret] = useState("");
   const [pinterestClientId, setPinterestClientId] = useState("");
   const [pinterestClientSecret, setPinterestClientSecret] = useState("");
-  const [nutritionixAppId, setNutritionixAppId] = useState("");
-  const [nutritionixApiKey, setNutritionixApiKey] = useState("");
-  const [fatSecretClientId, setFatSecretClientId] = useState("");
-  const [fatSecretClientSecret, setFatSecretClientSecret] = useState("");
+  const [snapTradeClientId, setSnapTradeClientId] = useState("");
+  const [snapTradeConsumerKey, setSnapTradeConsumerKey] = useState("");
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const googleCanStartOAuth =
     integration.id === "google" &&
@@ -126,25 +112,11 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     (pinterestSettings?.hasClientConfig ||
       integration.setupHint === "Ready to connect through Pinterest OAuth.");
 
-  const loadWorkspaceSourceSettings = async (nextVaultPath?: string) => {
-    const params = new URLSearchParams();
-    if (nextVaultPath) params.set("vaultPath", nextVaultPath);
-    const data = await fetchIntegrationSettings<WorkspaceSourceSettings>(
-      `/api/integrations/obsidian/settings${params.size > 0 ? `?${params.toString()}` : ""}`,
-    ).catch(() => null);
-    if (!data) return;
-    setSettings(data);
-    vaultPath.current = data.vaultPath ?? "";
-    notesDirectory.current = data.notesDirectory ?? "";
-  };
-
   const loadSettings = () => {
-    if (integration.id === "obsidian") void loadWorkspaceSourceSettings();
     if (integration.id === "google") void loadGoogleSettings();
     if (integration.id === "pinterest") void loadPinterestSettings();
     if (integration.id === "hevy") void loadHevySettings();
-    if (integration.id === "nutritionix") void loadNutritionixSettings();
-    if (integration.id === "fatsecret") void loadFatSecretSettings();
+    if (integration.id === "snaptrade") void loadSnapTradeSettings();
   };
 
   const loadHevySettings = async () => {
@@ -154,6 +126,16 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     if (!data) return;
     setHevySettings(data);
     setHevyApiKey("");
+  };
+
+  const loadSnapTradeSettings = async () => {
+    const data = await fetchIntegrationSettings<SnapTradeSettings>(
+      "/api/integrations/snaptrade/settings",
+    ).catch(() => null);
+    if (!data) return;
+    setSnapTradeSettings(data);
+    setSnapTradeClientId("");
+    setSnapTradeConsumerKey("");
   };
 
   const loadGoogleSettings = async () => {
@@ -174,26 +156,6 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     setPinterestSettings(data);
     setPinterestClientId("");
     setPinterestClientSecret("");
-  };
-
-  const loadNutritionixSettings = async () => {
-    const data = await fetchIntegrationSettings<NutritionixSettings>(
-      "/api/integrations/nutritionix/settings",
-    ).catch(() => null);
-    if (!data) return;
-    setNutritionixSettings(data);
-    setNutritionixAppId("");
-    setNutritionixApiKey("");
-  };
-
-  const loadFatSecretSettings = async () => {
-    const data = await fetchIntegrationSettings<FatSecretSettings>(
-      "/api/integrations/fatsecret/settings",
-    ).catch(() => null);
-    if (!data) return;
-    setFatSecretSettings(data);
-    setFatSecretClientId("");
-    setFatSecretClientSecret("");
   };
 
   const openModal = () => {
@@ -261,14 +223,11 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
   const saveGoogleSettings = async () => {
     setSaving(true);
     try {
-      const data = await saveIntegrationSettings<GoogleSettings>(
-        "/api/integrations/google/settings",
-        { clientId: googleClientId, clientSecret: googleClientSecret },
-      );
-      setGoogleSettings(data);
-      setGoogleClientId("");
-      setGoogleClientSecret("");
-      refreshIntegrationState();
+      const data = await startGoogleOAuth({
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+      });
+      window.location.assign(data.authorizationUrl);
     } finally {
       setSaving(false);
     }
@@ -277,87 +236,46 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
   const savePinterestSettings = async () => {
     setSaving(true);
     try {
-      const data = await saveIntegrationSettings<PinterestSettings>(
-        "/api/integrations/pinterest/settings",
-        { clientId: pinterestClientId, clientSecret: pinterestClientSecret },
-      );
-      setPinterestSettings(data);
-      setPinterestClientId("");
-      setPinterestClientSecret("");
-      refreshIntegrationState();
+      const data = await startPinterestOAuth({
+        clientId: pinterestClientId,
+        clientSecret: pinterestClientSecret,
+      });
+      window.location.assign(data.authorizationUrl);
     } finally {
       setSaving(false);
     }
   };
 
-  const saveNutritionixSettings = async () => {
-    await saveSecretSettings("/api/integrations/nutritionix/settings", {
-      appId: nutritionixAppId,
-      apiKey: nutritionixApiKey,
-    });
-  };
-
-  const saveFatSecretSettings = async () => {
-    await saveSecretSettings("/api/integrations/fatsecret/settings", {
-      clientId: fatSecretClientId,
-      clientSecret: fatSecretClientSecret,
-    });
-  };
-
-  const saveSecretSettings = async (url: string, body: object) => {
+  const saveSnapTradeSettings = async () => {
     setSaving(true);
     try {
-      await saveIntegrationSettings(url, body);
-      refreshAndClose();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveWorkspaceSourceSettings = async () => {
-    await saveSecretSettings("/api/integrations/obsidian/settings", {
-      enabled: true,
-      vaultPath: vaultPath.current,
-      notesDirectory: notesDirectory.current,
-    });
-  };
-
-  const addWorkspaceSource = async () => {
-    const picked = await fetch("/api/system/pick-folder", { method: "POST" });
-    const payload = (await picked.json()) as {
-      path?: string;
-      cancelled?: boolean;
-    };
-    if (!payload.path || payload.cancelled) return;
-    await addWorkspaceSourcePath(payload.path);
-  };
-
-  const addWorkspaceSourcePath = async (sourcePath: string) => {
-    setSaving(true);
-    try {
-      const data = await saveIntegrationSettings<WorkspaceSourceSettings>(
-        "/api/integrations/obsidian/links",
-        { sourcePath },
+      await saveIntegrationSettings<SnapTradeSettings>(
+        "/api/integrations/snaptrade/settings",
+        {
+          clientId: snapTradeClientId,
+          consumerKey: snapTradeConsumerKey,
+        },
       );
-      setSettings(data);
-      refreshIntegrationState();
+      const portal = (await convexClient.action(
+        convexApi.snaptrade.createConnectionPortal,
+        { customRedirect: window.location.href },
+      )) as { redirectUri: string };
+      window.location.assign(portal.redirectUri);
     } finally {
       setSaving(false);
     }
   };
 
-  const removeWorkspaceSource = async (sourcePath: string) => {
-    setSaving(true);
-    try {
-      const data = await deleteIntegrationAction<WorkspaceSourceSettings>(
-        "/api/integrations/obsidian/links",
-        { sourcePath },
-      );
-      setSettings(data);
-      refreshIntegrationState();
-    } finally {
-      setSaving(false);
-    }
+  const addWorkspaceSource = () => {
+    throw new Error("Workspace source picker is local-only and disabled");
+  };
+
+  const addWorkspaceSourcePath = () => {
+    throw new Error("Workspace source links are local-only and disabled");
+  };
+
+  const removeWorkspaceSource = () => {
+    throw new Error("Workspace source links are local-only and disabled");
   };
 
   const disconnect = async () => {
@@ -379,8 +297,7 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     googleSettings,
     pinterestSettings,
     hevySettings,
-    nutritionixSettings,
-    fatSecretSettings,
+    snapTradeSettings,
     googleCanStartOAuth,
     pinterestCanStartOAuth,
     googleClientId,
@@ -388,20 +305,16 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     pinterestClientId,
     pinterestClientSecret,
     hevyApiKey,
-    nutritionixAppId,
-    nutritionixApiKey,
-    fatSecretClientId,
-    fatSecretClientSecret,
+    snapTradeClientId,
+    snapTradeConsumerKey,
     syncResult,
     setGoogleClientId,
     setGoogleClientSecret,
     setPinterestClientId,
     setPinterestClientSecret,
     setHevyApiKey,
-    setNutritionixAppId,
-    setNutritionixApiKey,
-    setFatSecretClientId,
-    setFatSecretClientSecret,
+    setSnapTradeClientId,
+    setSnapTradeConsumerKey,
     addWorkspaceSourcePath,
     addWorkspaceSource,
     removeWorkspaceSource,
@@ -411,9 +324,7 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
     saveHevySettings,
     saveGoogleSettings,
     savePinterestSettings,
-    saveNutritionixSettings,
-    saveFatSecretSettings,
-    saveWorkspaceSourceSettings,
+    saveSnapTradeSettings,
     disconnect,
   };
 }
@@ -431,8 +342,7 @@ export function IntegrationCard({
     googleSettings,
     pinterestSettings,
     hevySettings,
-    nutritionixSettings,
-    fatSecretSettings,
+    snapTradeSettings,
     googleCanStartOAuth,
     pinterestCanStartOAuth,
     googleClientId,
@@ -440,20 +350,16 @@ export function IntegrationCard({
     pinterestClientId,
     pinterestClientSecret,
     hevyApiKey,
-    nutritionixAppId,
-    nutritionixApiKey,
-    fatSecretClientId,
-    fatSecretClientSecret,
+    snapTradeClientId,
+    snapTradeConsumerKey,
     syncResult,
     setGoogleClientId,
     setGoogleClientSecret,
     setPinterestClientId,
     setPinterestClientSecret,
     setHevyApiKey,
-    setNutritionixAppId,
-    setNutritionixApiKey,
-    setFatSecretClientId,
-    setFatSecretClientSecret,
+    setSnapTradeClientId,
+    setSnapTradeConsumerKey,
     addWorkspaceSourcePath,
     addWorkspaceSource,
     removeWorkspaceSource,
@@ -462,10 +368,8 @@ export function IntegrationCard({
     openModal,
     saveHevySettings,
     saveGoogleSettings,
+    saveSnapTradeSettings,
     savePinterestSettings,
-    saveNutritionixSettings,
-    saveFatSecretSettings,
-    saveWorkspaceSourceSettings,
     disconnect,
   } = controller;
   const canConnect =
@@ -517,31 +421,16 @@ export function IntegrationCard({
                 </p>
               </div>
             </div>
-            {canConnect &&
-            integration.id !== "obsidian" &&
-            integration.id !== "hevy" &&
-            integration.id !== "nutritionix" &&
-            integration.id !== "fatsecret" &&
-            integration.connectProvider ? (
-              <Link
-                href={`/api/integrations/connect?provider=${integration.connectProvider}&next=/`}
-                onClick={(event) => event.stopPropagation()}
-                className={stateClassName}
-              >
-                {stateLabel}
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openModal();
-                }}
-                className={stateClassName}
-              >
-                {stateLabel}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                openModal();
+              }}
+              className={stateClassName}
+            >
+              {stateLabel}
+            </button>
           </div>
         </CardHeader>
         <CardContent className={integrationStyles.body}>
@@ -593,8 +482,7 @@ export function IntegrationCard({
               googleSettings,
               pinterestSettings,
               hevySettings,
-              nutritionixSettings,
-              fatSecretSettings,
+              snapTradeSettings,
               googleCanStartOAuth,
               pinterestCanStartOAuth,
               googleClientId,
@@ -602,20 +490,16 @@ export function IntegrationCard({
               pinterestClientId,
               pinterestClientSecret,
               hevyApiKey,
-              nutritionixAppId,
-              nutritionixApiKey,
-              fatSecretClientId,
-              fatSecretClientSecret,
+              snapTradeClientId,
+              snapTradeConsumerKey,
               syncResult,
               setGoogleClientId,
               setGoogleClientSecret,
               setPinterestClientId,
               setPinterestClientSecret,
               setHevyApiKey,
-              setNutritionixAppId,
-              setNutritionixApiKey,
-              setFatSecretClientId,
-              setFatSecretClientSecret,
+              setSnapTradeClientId,
+              setSnapTradeConsumerKey,
               addWorkspaceSourcePath,
               addWorkspaceSource,
               removeWorkspaceSource,
@@ -627,26 +511,19 @@ export function IntegrationCard({
         </div>
         <IntegrationDialogActions
           integration={integration}
-          canConnect={Boolean(canConnect)}
           saving={saving}
           googleClientId={googleClientId}
           googleClientSecret={googleClientSecret}
-          googleCanStartOAuth={googleCanStartOAuth}
           pinterestClientId={pinterestClientId}
           pinterestClientSecret={pinterestClientSecret}
-          pinterestCanStartOAuth={pinterestCanStartOAuth}
           hevyApiKey={hevyApiKey}
-          nutritionixAppId={nutritionixAppId}
-          nutritionixApiKey={nutritionixApiKey}
-          fatSecretClientId={fatSecretClientId}
-          fatSecretClientSecret={fatSecretClientSecret}
+          snapTradeClientId={snapTradeClientId}
+          snapTradeConsumerKey={snapTradeConsumerKey}
           onDisconnect={disconnect}
-          onSaveWorkspaceSource={saveWorkspaceSourceSettings}
           onSaveGoogle={saveGoogleSettings}
           onSavePinterest={savePinterestSettings}
           onSaveHevy={saveHevySettings}
-          onSaveNutritionix={saveNutritionixSettings}
-          onSaveFatSecret={saveFatSecretSettings}
+          onSaveSnapTrade={saveSnapTradeSettings}
         />
       </WorkspaceDialog>
     </>

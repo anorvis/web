@@ -1,40 +1,15 @@
-import {
-  platformCalendarEventToUiEvent,
-  platformCalendarEventToUiEvents,
-} from "@/features/life/lib/calendar-adapters";
-import {
-  mergeTaskPlanIntoQueue,
-  taskPlanToCalendarEvents,
-} from "@/features/life/lib/task-plan-adapters";
-import type {
-  PlatformCalendarEvent,
-  TaskPlan,
-} from "@/features/life/lib/task-plan-types";
-import {
-  deleteJson,
-  patchJson,
-  postJson,
-  requestJson,
-} from "@/lib/effect/http";
-import { runEffect } from "@/lib/effect/runtime";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 import {
   cachedLifeRead,
   clearAfterLifeMutation,
   clearLifeReadCache,
 } from "@/lib/life-intelligence/life-read-cache";
-import {
-  requestBrowserLocalJson,
-  shouldUseBrowserLocalBackend,
-} from "@/lib/local-backend-client";
-import type { CalendarEvent, LifeSnapshot } from "@/types/workspace";
-
-type CalendarResponse = {
-  events: CalendarEvent[];
-};
-
-type LocalCalendarResponse = {
-  events: PlatformCalendarEvent[];
-};
+import type {
+  CalendarEvent,
+  LifePriorityTask,
+  LifeSnapshot,
+} from "@/types/workspace";
 
 export type LifeTag = {
   id: string;
@@ -46,9 +21,6 @@ export type LifeTag = {
   updatedAt: string;
 };
 
-type LifeTagsResponse = { tags: LifeTag[] };
-type LifeTagResponse = { tag: LifeTag };
-
 export type CreateEventInput = {
   summary: string;
   startAt: string;
@@ -58,296 +30,519 @@ export type CreateEventInput = {
   tag?: string;
 };
 
-export type UpdateEventInput = {
+export type UpdateEventInput = { id: string } & CreateEventInput;
+export type MoveTaskSessionInput = {
   id: string;
-} & CreateEventInput;
+  startAt: string;
+  endAt: string;
+};
 
-function localCalendarEventPayload(input: CreateEventInput) {
+type RawTag = {
+  _id: string;
+  name: string;
+  color?: string;
+  hidden: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type RawTask = {
+  _id: string;
+  title: string;
+  notes?: string;
+  status: "open" | "in_progress" | "completed" | "cancelled";
+  priority?: "low" | "medium" | "high" | "urgent";
+  dueAt?: number;
+  source: string;
+  durationMinutes?: number;
+  links: string[];
+  multiSession: boolean;
+  completedAt?: number;
+};
+
+type RawSession = {
+  _id: string;
+  taskId: string;
+  startAt: number;
+  endAt: number;
+};
+
+type RawEvent = {
+  _id: string;
+  summary: string;
+  schedule:
+    | { kind: "timed"; startAt: number; endAt: number; timezone?: string }
+    | { kind: "all_day"; startDate: string; endDateExclusive: string };
+  startDay: string;
+  endDay: string;
+  location?: string;
+  description?: string;
+  tag?: string;
+  source: string;
+  provider?: string;
+  calendarId?: string;
+  readOnly: boolean;
+};
+
+type RawSnapshot = {
+  tasks: RawTask[];
+  sessions: RawSession[];
+  events: RawEvent[];
+  tags: RawTag[];
+};
+
+function day(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const date = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${date}`;
+}
+
+function addDays(value: Date, amount: number): Date {
+  const result = new Date(value);
+  result.setDate(result.getDate() + amount);
+  return result;
+}
+
+function minutes(value: number): number {
+  const date = new Date(value);
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function mapTag(tag: RawTag): LifeTag {
+  return {
+    id: tag._id,
+    name: tag.name,
+    color: tag.color ?? null,
+    hidden: tag.hidden,
+    system: false,
+    createdAt: new Date(tag.createdAt).toISOString(),
+    updatedAt: new Date(tag.updatedAt).toISOString(),
+  };
+}
+
+function mapEvent(event: RawEvent, tags: RawTag[]): CalendarEvent {
+  const tag = tags.find((candidate) => candidate.name === event.tag);
+  if (event.schedule.kind === "all_day") {
+    return {
+      id: event._id,
+      summary: event.summary,
+      startMinute: 0,
+      endMinute: 1440,
+      type: "default",
+      dayIndex: new Date(`${event.schedule.startDate}T12:00:00`).getDay(),
+      date: event.schedule.startDate,
+      allDay: true,
+      tag: event.tag ?? null,
+      tagColor: tag?.color ?? null,
+      location: event.location,
+      description: event.description,
+      source: event.provider === "google" ? "google-calendar" : "local",
+      calendarId: event.calendarId ?? null,
+      readOnly: event.readOnly,
+    };
+  }
+  const start = new Date(event.schedule.startAt);
+  return {
+    id: event._id,
+    summary: event.summary,
+    startMinute: minutes(event.schedule.startAt),
+    endMinute: Math.max(
+      minutes(event.schedule.endAt),
+      minutes(event.schedule.startAt) + 1,
+    ),
+    type: "default",
+    dayIndex: start.getDay(),
+    date: day(start),
+    tag: event.tag ?? null,
+    tagColor: tag?.color ?? null,
+    location: event.location,
+    description: event.description,
+    source: event.provider === "google" ? "google-calendar" : "local",
+    calendarId: event.calendarId ?? null,
+    readOnly: event.readOnly,
+  };
+}
+
+function taskLabel(
+  dueAt: number | undefined,
+  now: number,
+): LifePriorityTask["label"] {
+  if (dueAt === undefined) return "no date";
+  if (dueAt < now) return "overdue";
+  if (dueAt <= now + 24 * 60 * 60 * 1000) return "due soon";
+  if (dueAt <= now + 7 * 24 * 60 * 60 * 1000) return "upcoming";
+  return "scheduled";
+}
+
+function mapTask(task: RawTask, now: number): LifePriorityTask {
+  const label = taskLabel(task.dueAt, now);
+  const priority = task.priority === "medium" ? "normal" : task.priority;
+  const weight = { urgent: 40, high: 30, normal: 20, low: 10 }[
+    priority ?? "normal"
+  ];
+  return {
+    id: task._id,
+    title: task.title,
+    source: task.source,
+    dueAt: task.dueAt ?? null,
+    dueContext: task.dueAt
+      ? new Date(task.dueAt).toLocaleString()
+      : "no due date",
+    label,
+    score: weight + (label === "overdue" ? 50 : label === "due soon" ? 30 : 0),
+    notes: task.notes ?? null,
+    links: task.links,
+    durationMinutes: task.durationMinutes,
+    priority,
+    multiSession: task.multiSession,
+  };
+}
+
+function taskEvents(snapshot: RawSnapshot): CalendarEvent[] {
+  const tasks = new Map(snapshot.tasks.map((task) => [task._id, task]));
+  const sessions = snapshot.sessions.flatMap((session) => {
+    const task = tasks.get(session.taskId);
+    if (!task) return [];
+    const start = new Date(session.startAt);
+    return [
+      {
+        id: `session:${session._id}`,
+        summary: task.title,
+        startMinute: minutes(session.startAt),
+        endMinute: Math.max(
+          minutes(session.endAt),
+          minutes(session.startAt) + 1,
+        ),
+        type: "plannedTask" as const,
+        dayIndex: start.getDay(),
+        date: day(start),
+        taskId: task._id,
+        sessionId: session._id,
+        source: "task" as const,
+      },
+    ];
+  });
+  const deadlines = snapshot.tasks.flatMap((task) => {
+    if (
+      task.dueAt === undefined ||
+      task.status === "completed" ||
+      task.status === "cancelled"
+    )
+      return [];
+    const due = new Date(task.dueAt);
+    return [
+      {
+        id: `deadline:${task._id}`,
+        summary: task.title,
+        startMinute: minutes(task.dueAt),
+        endMinute: Math.min(1440, minutes(task.dueAt) + 30),
+        type: "taskDeadline" as const,
+        dayIndex: due.getDay(),
+        date: day(due),
+        taskId: task._id,
+        source: "task" as const,
+      },
+    ];
+  });
+  return [...sessions, ...deadlines];
+}
+
+async function rawSnapshot(start: Date, end: Date): Promise<RawSnapshot> {
+  return convexClient.query(convexApi.life.snapshot, {
+    startDay: day(start),
+    endDay: day(end),
+    startAt: start.valueOf(),
+    endAt: end.valueOf(),
+  }) as Promise<RawSnapshot>;
+}
+
+async function buildLifeSnapshot(): Promise<LifeSnapshot> {
+  const now = new Date();
+  const weekStart = addDays(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+    -now.getDay(),
+  );
+  const weekEnd = addDays(weekStart, 7);
+  const [snapshot, providers] = await Promise.all([
+    rawSnapshot(weekStart, weekEnd),
+    convexClient.query(convexApi.integrations.list, {}) as Promise<
+      Array<{ provider: string; status: string }>
+    >,
+  ]);
+  const providerStatus = (provider: string) =>
+    (providers.find((item) => item.provider === provider)?.status ??
+      "available") as "connected" | "available" | "unavailable";
+  const calendar = snapshot.events.map((event) =>
+    mapEvent(event, snapshot.tags),
+  );
+  const taskCalendar = taskEvents(snapshot);
+  const weekCalendarEvents = [...calendar, ...taskCalendar].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute,
+  );
+  const today = day(now);
+  const todayCalendarEvents = weekCalendarEvents.filter(
+    (event) => event.date === today,
+  );
+  const queue = snapshot.tasks
+    .filter(
+      (task) => task.status !== "completed" && task.status !== "cancelled",
+    )
+    .map((task) => mapTask(task, now.valueOf()))
+    .sort(
+      (a, b) =>
+        b.score - a.score || (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity),
+    );
+  const currentMinute = now.getHours() * 60 + now.getMinutes();
+  const current = todayCalendarEvents.find(
+    (event) =>
+      event.startMinute <= currentMinute && event.endMinute > currentMinute,
+  );
+  const next = todayCalendarEvents.find(
+    (event) => event.startMinute > currentMinute,
+  );
+  const weekEventCounts = Array.from(
+    { length: 7 },
+    (_, index) =>
+      weekCalendarEvents.filter((event) => event.dayIndex === index).length,
+  );
+  const completedByDay = new Map<string, number>();
+  for (const task of snapshot.tasks) {
+    if (task.completedAt) {
+      const key = day(new Date(task.completedAt));
+      completedByDay.set(key, (completedByDay.get(key) ?? 0) + 1);
+    }
+  }
+  const heatmapData = Array.from({ length: 90 }, (_, index) => {
+    const date = day(addDays(now, index - 89));
+    const completedCount = completedByDay.get(date) ?? 0;
+    return {
+      date,
+      completedCount,
+      intensity: Math.min(4, completedCount) as 0 | 1 | 2 | 3 | 4,
+    };
+  });
+  return {
+    hasGoogleCalendar: providerStatus("google") === "connected",
+    hasGoogleTasks: false,
+    hasSpotify: false,
+    googleCalendarStatus: providerStatus("google"),
+    googleTasksStatus: "unavailable",
+    spotifyStatus: "unavailable",
+    timezoneLabel: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    queue,
+    doNow: queue[0]?.title ?? "nothing urgent",
+    doNext: queue[1]?.title ?? "queue is clear",
+    todayEvents: todayCalendarEvents.map((event) => ({
+      id: event.id,
+      hour: event.startMinute / 60,
+      endHour: event.endMinute / 60,
+      summary: event.summary,
+      type:
+        event.type === "focusTime" || event.type === "outOfOffice"
+          ? event.type
+          : "default",
+    })),
+    currentHour: now.getHours(),
+    executionScore: null,
+    executionScoreStatusText: "tracked locally",
+    weekEventCounts,
+    weekTotalEvents: weekCalendarEvents.length,
+    todayEventCount: todayCalendarEvents.length,
+    heatmapData,
+    weekGridEvents: weekCalendarEvents.map((event) => ({
+      id: event.id,
+      day: event.dayIndex ?? new Date(`${event.date}T12:00:00`).getDay(),
+      startHour: event.startMinute / 60,
+      endHour: event.endMinute / 60,
+      label: event.summary,
+      kind: event.type === "plannedTask" ? "agent_overlay" : "mandatory",
+    })),
+    todayCalendarEvents,
+    weekCalendarEvents,
+    currentEvent: current ? { summary: current.summary } : null,
+    nextEvent: next
+      ? {
+          summary: next.summary,
+          startsInMinutes: next.startMinute - currentMinute,
+        }
+      : null,
+  };
+}
+
+export function fetchLifeSnapshot(): Promise<LifeSnapshot> {
+  return cachedLifeRead("life:snapshot", buildLifeSnapshot);
+}
+
+export function fetchCalendarEvents(
+  params: URLSearchParams,
+): Promise<CalendarEvent[]> {
+  const key = `life:calendar:${params.toString()}`;
+  return cachedLifeRead(key, async () => {
+    const start = new Date(
+      params.get("timeMin") ?? Date.now() - 7 * 86_400_000,
+    );
+    const end = new Date(params.get("timeMax") ?? Date.now() + 7 * 86_400_000);
+    const [events, snapshot] = await Promise.all([
+      convexClient.query(convexApi.calendar.list, {
+        startDay: day(start),
+        endDay: day(end),
+      }) as Promise<RawEvent[]>,
+      rawSnapshot(start, end),
+    ]);
+    return [
+      ...events.map((event) => mapEvent(event, snapshot.tags)),
+      ...taskEvents(snapshot),
+    ].sort(
+      (a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute,
+    );
+  });
+}
+
+export async function fetchLifeTags(): Promise<LifeTag[]> {
+  const tags = (await convexClient.query(convexApi.life.listTags, {
+    includeHidden: true,
+  })) as RawTag[];
+  return tags.map(mapTag);
+}
+
+async function getLifeTag(id: string): Promise<LifeTag> {
+  const tag = (await fetchLifeTags()).find((candidate) => candidate.id === id);
+  if (!tag) throw new Error(`Life tag ${id} was not returned after mutation`);
+  return tag;
+}
+
+export async function saveLifeTag(input: {
+  name: string;
+  color?: string | null;
+}): Promise<LifeTag> {
+  const id = (await convexClient.mutation(convexApi.life.upsertTag, {
+    name: input.name,
+    color: input.color ?? undefined,
+  })) as string;
+  return getLifeTag(id);
+}
+
+export async function updateLifeTag(
+  id: string,
+  patch: { name?: string; color?: string | null; hidden?: boolean },
+): Promise<LifeTag> {
+  await convexClient.mutation(convexApi.life.updateTag, {
+    id,
+    ...patch,
+    color: patch.color ?? undefined,
+    clearColor: patch.color === null ? true : undefined,
+  });
+  return getLifeTag(id);
+}
+
+export function hideLifeTag(id: string): Promise<LifeTag> {
+  return updateLifeTag(id, { hidden: true });
+}
+
+function eventArgs(input: CreateEventInput) {
   return {
     summary: input.summary,
-    startAt: input.startAt,
-    endAt: input.endAt,
+    schedule: {
+      kind: "timed" as const,
+      startAt: new Date(input.startAt).valueOf(),
+      endAt: new Date(input.endAt).valueOf(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
     location: input.location,
     description: input.description,
     tag: input.tag,
   };
 }
 
-export type MoveTaskSessionInput = {
-  id: string;
-  startAt: string;
-  endAt: string;
-};
-function filterEventsByRange(events: CalendarEvent[], params: URLSearchParams) {
-  const timeMin = params.get("timeMin");
-  const timeMax = params.get("timeMax");
-  const min = timeMin ? new Date(timeMin) : null;
-  const max = timeMax ? new Date(timeMax) : null;
-  return events.filter((event) => {
-    const eventDate = new Date(`${event.date}T12:00:00`);
-    if (Number.isNaN(eventDate.getTime())) return false;
-    if (min && eventDate < min) return false;
-    if (max && eventDate > max) return false;
-    return true;
-  });
-}
-
-async function fetchBrowserLocalTaskPlan() {
-  try {
-    return await requestBrowserLocalJson<TaskPlan>("/v1/tasks/plan");
-  } catch {
-    return null;
-  }
-}
-
-async function fetchBrowserLocalLifeSnapshot() {
-  const [snapshot, taskPlan] = await Promise.all([
-    requestBrowserLocalJson<LifeSnapshot>("/v1/life/snapshot"),
-    fetchBrowserLocalTaskPlan(),
-  ]);
-  return taskPlan
-    ? {
-        ...snapshot,
-        queue: mergeTaskPlanIntoQueue(snapshot.queue, taskPlan),
-      }
-    : snapshot;
-}
-
-async function fetchBrowserLocalCalendarEvents(params: URLSearchParams) {
-  const [response, taskPlan] = await Promise.all([
-    requestBrowserLocalJson<LocalCalendarResponse>(
-      `/v1/calendar/events?${params.toString()}`,
-    ),
-    fetchBrowserLocalTaskPlan(),
-  ]);
-  const calendarEvents = response.events.flatMap(
-    platformCalendarEventToUiEvents,
-  );
-  return [
-    ...calendarEvents,
-    ...filterEventsByRange(taskPlanToCalendarEvents(taskPlan), params),
-  ];
-}
-
-export function fetchLifeSnapshot(): Promise<LifeSnapshot> {
-  return cachedLifeRead("life:snapshot", () => {
-    if (shouldUseBrowserLocalBackend()) {
-      return fetchBrowserLocalLifeSnapshot();
-    }
-
-    return runEffect(requestJson<LifeSnapshot>("/api/life/snapshot"));
-  });
-}
-
-export function fetchCalendarEvents(params: URLSearchParams) {
-  const key = `life:calendar:${params.toString()}`;
-  return cachedLifeRead(key, () => {
-    if (shouldUseBrowserLocalBackend()) {
-      return fetchBrowserLocalCalendarEvents(params);
-    }
-
-    return runEffect(
-      requestJson<CalendarResponse>(`/api/life/calendar?${params.toString()}`),
-    ).then((response) => response.events);
-  });
-}
-
-export function fetchLifeTags(): Promise<LifeTag[]> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<LifeTagsResponse>("/v1/life/tags").then(
-      (response) => response.tags,
-    );
-  }
-
-  return runEffect(requestJson<LifeTagsResponse>("/api/life/tags")).then(
-    (response) => response.tags,
-  );
-}
-
-export function saveLifeTag(input: {
-  name: string;
-  color?: string | null;
-}): Promise<LifeTag> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<LifeTagResponse>("/v1/life/tags", {
-      method: "POST",
-      body: JSON.stringify(input),
-    }).then((response) => response.tag);
-  }
-
-  return runEffect(postJson<LifeTagResponse>("/api/life/tags", input)).then(
-    (response) => response.tag,
-  );
-}
-
-export function updateLifeTag(
-  id: string,
-  patch: { name?: string; color?: string | null; hidden?: boolean },
-): Promise<LifeTag> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<LifeTagResponse>(
-      `/v1/life/tags/${encodeURIComponent(id)}`,
-      { method: "PUT", body: JSON.stringify(patch) },
-    ).then((response) => response.tag);
-  }
-
-  return runEffect(
-    requestJson<LifeTagResponse>(`/api/life/tags/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify(patch),
-    }),
-  ).then((response) => response.tag);
-}
-
-export function hideLifeTag(id: string): Promise<LifeTag> {
-  if (shouldUseBrowserLocalBackend()) {
-    return requestBrowserLocalJson<LifeTagResponse>(
-      `/v1/life/tags/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    ).then((response) => response.tag);
-  }
-
-  return runEffect(
-    deleteJson<LifeTagResponse>(`/api/life/tags/${encodeURIComponent(id)}`),
-  ).then((response) => response.tag);
-}
-
 export function createCalendarEvent(input: CreateEventInput) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<PlatformCalendarEvent>("/v1/calendar/events", {
-        method: "POST",
-        body: JSON.stringify(localCalendarEventPayload(input)),
-      }).then(platformCalendarEventToUiEvent),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(postJson<CalendarEvent>("/api/life/events", input)),
+    convexClient.mutation(convexApi.calendar.create, eventArgs(input)),
   );
 }
 
 export function updateCalendarEvent(input: UpdateEventInput) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<PlatformCalendarEvent>(
-        `/v1/calendar/events/${encodeURIComponent(input.id)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(localCalendarEventPayload(input)),
-        },
-      ).then(platformCalendarEventToUiEvent),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(patchJson<CalendarEvent>(`/api/life/events/${input.id}`, input)),
+    convexClient.mutation(convexApi.calendar.update, {
+      id: input.id,
+      ...eventArgs(input),
+    }),
   );
 }
 
 export function deleteCalendarEvent(id: string) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<{ ok: true }>(
-        `/v1/calendar/events/${encodeURIComponent(id)}`,
-        { method: "DELETE" },
-      ),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(deleteJson<{ ok: true }>(`/api/life/events/${id}`)),
+    convexClient.mutation(convexApi.calendar.remove, { id }),
   );
+}
+
+function taskInput(value: unknown, updating = false): Record<string, unknown> {
+  const input = (value && typeof value === "object" ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  const dueAt =
+    typeof input.dueAt === "string"
+      ? new Date(input.dueAt).valueOf()
+      : input.dueAt;
+  const priority = input.priority === "normal" ? "medium" : input.priority;
+  return {
+    title: input.title,
+    notes: typeof input.notes === "string" ? input.notes : undefined,
+    clearNotes: updating && input.notes === null ? true : undefined,
+    priority,
+    dueAt:
+      typeof dueAt === "number" && Number.isFinite(dueAt) ? dueAt : undefined,
+    clearDueAt: updating && input.dueAt === null ? true : undefined,
+    durationMinutes: input.durationMinutes,
+    clearDuration:
+      updating && input.durationMinutes === null ? true : undefined,
+    links: input.links,
+    multiSession: input.multiSession,
+  };
 }
 
 export function createTask(input: unknown) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<unknown>("/v1/tasks", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(postJson<unknown>("/api/life/tasks", input)),
+    convexClient.mutation(convexApi.tasks.create, taskInput(input)),
   );
 }
 
 export function updateTask(id: string, input: unknown) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<unknown>(`/v1/tasks/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      }),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(
-      patchJson<unknown>(`/api/life/tasks/${encodeURIComponent(id)}`, input),
-    ),
+    convexClient.mutation(convexApi.tasks.update, {
+      id,
+      ...taskInput(input, true),
+    }),
   );
 }
 
 export function completeTask(id: string) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<unknown>(
-        `/v1/tasks/${encodeURIComponent(id)}/complete`,
-        { method: "PATCH" },
-      ),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(patchJson<unknown>("/api/life/tasks", { id })),
+    convexClient.mutation(convexApi.tasks.complete, { id }),
   );
 }
 
 export function deleteTask(id: string) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<unknown>(`/v1/tasks/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      }),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(deleteJson<unknown>(`/api/life/tasks/${id}`)),
+    convexClient.mutation(convexApi.tasks.remove, { id }),
   );
 }
 
 export function moveTaskSession(input: MoveTaskSessionInput) {
   clearLifeReadCache();
-  if (shouldUseBrowserLocalBackend()) {
-    return clearAfterLifeMutation(
-      requestBrowserLocalJson<unknown>(
-        `/v1/tasks/sessions/${encodeURIComponent(input.id)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ startAt: input.startAt, endAt: input.endAt }),
-        },
-      ),
-    );
-  }
-
   return clearAfterLifeMutation(
-    runEffect(
-      patchJson<unknown>(`/api/life/tasks/sessions/${input.id}`, {
-        startAt: input.startAt,
-        endAt: input.endAt,
-      }),
-    ),
+    convexClient.mutation(convexApi.tasks.moveSession, {
+      id: input.id,
+      startAt: new Date(input.startAt).valueOf(),
+      endAt: new Date(input.endAt).valueOf(),
+    }),
   );
 }

@@ -1,11 +1,20 @@
 import "server-only";
 
-import { gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { ConvexHttpClient } from "convex/browser";
+import { convexApi } from "@/lib/convex-functions";
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? "http://127.0.0.1:3210";
+const convexSiteUrl =
+  process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
 
 export type PinterestStatus = {
   connected: boolean;
   hasClientConfig: boolean;
+  hasClientId?: boolean;
+  hasClientSecret?: boolean;
   scopes: string[];
+  canAutoRenew?: boolean;
+  accessTokenExpiresAt?: number | null;
 };
 
 export type PinterestBoardImage = {
@@ -15,17 +24,34 @@ export type PinterestBoardImage = {
   link: string | null;
 };
 
-export async function startPinterestAuth(input?: {
+export async function getPinterestSettings(): Promise<PinterestStatus> {
+  const client = new ConvexHttpClient(convexUrl);
+  return client.action(convexApi.pinterest.settings, {});
+}
+
+export async function savePinterestSettings(input: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<PinterestStatus> {
+  const client = new ConvexHttpClient(convexUrl);
+  return client.action(convexApi.pinterest.saveSettings, input);
+}
+
+export async function startPinterestAuth(input: {
+  clientId: string;
+  clientSecret: string;
   scopes?: string[];
   returnTo?: string;
 }) {
-  return gatewayFetchJson<{ authUrl: string; state: string; scopes: string[] }>(
-    "/v1/integrations/pinterest/auth/start",
-    {
-      method: "POST",
-      body: JSON.stringify(input ?? {}),
-    },
-  );
+  const client = new ConvexHttpClient(convexUrl);
+  const returnTo = input.returnTo ?? "http://127.0.0.1:3000/";
+  return client.action(convexApi.pinterest.start, {
+    clientId: input.clientId,
+    clientSecret: input.clientSecret,
+    redirectUri: `${convexSiteUrl}/oauth/pinterest/callback`,
+    returnTo,
+    scopes: input.scopes,
+  });
 }
 
 export async function fetchPinterestBoardImages(input: {
@@ -33,13 +59,12 @@ export async function fetchPinterestBoardImages(input: {
   boardId?: string;
   maxResults?: number;
 }): Promise<PinterestBoardImage[]> {
-  const params = new URLSearchParams({
-    maxResults: String(input.maxResults ?? 50),
-  });
-  if (input.boardUrl) params.set("boardUrl", input.boardUrl);
-  if (input.boardId) params.set("boardId", input.boardId);
-  const payload = await gatewayFetchJson<{ images: PinterestBoardImage[] }>(
-    `/v1/integrations/pinterest/board-images?${params.toString()}`,
-  );
+  const client = new ConvexHttpClient(convexUrl);
+  const payload = (await client.action(
+    convexApi.pinterest.boardImages,
+    input,
+  )) as {
+    images: PinterestBoardImage[];
+  };
   return payload.images;
 }

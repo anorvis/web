@@ -54,11 +54,11 @@ const allowedImports = new Map([
     new Set(["@/features/integrations/components/card"]),
   ],
   [
-    "features/overview/lib/server.ts",
+    "features/overview/api/overview.ts",
     new Set([
-      "@/features/health/lib/server",
-      "@/features/integrations/lib/integrations",
-      "@/features/life/lib/server",
+      "@/features/finance/api/finance",
+      "@/features/health/api/health",
+      "@/features/life/api/life",
     ]),
   ],
   [

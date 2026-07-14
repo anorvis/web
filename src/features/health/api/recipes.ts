@@ -3,46 +3,155 @@ import type {
   NativeRecipe,
   NativeRecipeInput,
 } from "@/features/health/types/native-health";
-import { deleteJson, postJson, requestJson } from "@/lib/effect/http";
-import { runEffect } from "@/lib/effect/runtime";
+import { convexClient } from "@/lib/convex-client";
+import { convexApi } from "@/lib/convex-functions";
 
-export function fetchRecipes(): Promise<{ recipes: NativeRecipe[] }> {
-  return runEffect(
-    requestJson<{ recipes: NativeRecipe[] }>("/api/health/recipes"),
-  );
+type ConvexRecord = Record<string, unknown>;
+
+function stringId(value: ConvexRecord): string {
+  return String(value._id ?? value.id ?? "");
 }
 
-export function saveRecipe(
+function isoFromMillis(value: unknown): string {
+  const millis =
+    typeof value === "number" && Number.isFinite(value) ? value : Date.now();
+  return new Date(millis).toISOString();
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function optionalNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function records(value: unknown): ConvexRecord[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is ConvexRecord =>
+          typeof item === "object" && item !== null && !Array.isArray(item),
+      )
+    : [];
+}
+
+function mapRecipe(recipe: ConvexRecord): NativeRecipe {
+  return {
+    id: stringId(recipe),
+    title: String(recipe.title ?? "Recipe"),
+    source: String(recipe.source ?? "manual"),
+    sourceId: optionalString(recipe.sourceId),
+    sourceUrl: optionalString(recipe.sourceUrl),
+    imageUrl: optionalString(recipe.imageUrl),
+    youtubeUrl: optionalString(recipe.youtubeUrl),
+    category: optionalString(recipe.category),
+    area: optionalString(recipe.area),
+    calories: optionalNumber(recipe.calories),
+    proteinGrams: optionalNumber(recipe.proteinGrams),
+    carbsGrams: optionalNumber(recipe.carbsGrams),
+    fatGrams: optionalNumber(recipe.fatGrams),
+    isFavorite: Boolean(recipe.favorite ?? recipe.isFavorite),
+    notes: optionalString(recipe.notes),
+    ingredients: records(recipe.ingredients).map((ingredient) => ({
+      id: stringId(ingredient),
+      name: String(ingredient.name ?? ""),
+      quantity: optionalString(ingredient.quantity),
+    })),
+    instructions: Array.isArray(recipe.instructions)
+      ? recipe.instructions.map((instruction) =>
+          typeof instruction === "string"
+            ? instruction
+            : String((instruction as ConvexRecord).text ?? ""),
+        )
+      : [],
+    createdAt: isoFromMillis(recipe.createdAt),
+    updatedAt: isoFromMillis(recipe.updatedAt),
+  };
+}
+
+function saveInput(input: NativeRecipeInput & { id?: string }) {
+  return {
+    id: input.id || undefined,
+    title: input.title,
+    source: input.source as
+      | "manual"
+      | "agent"
+      | "import"
+      | "google"
+      | "hevy"
+      | "snaptrade"
+      | "csv"
+      | "url"
+      | "themealdb",
+    sourceId: input.sourceId ?? undefined,
+    sourceUrl: input.sourceUrl ?? undefined,
+    imageUrl: input.imageUrl ?? undefined,
+    youtubeUrl: input.youtubeUrl ?? undefined,
+    category: input.category ?? undefined,
+    area: input.area ?? undefined,
+    calories: input.calories,
+    proteinGrams: input.proteinGrams,
+    carbsGrams: input.carbsGrams,
+    fatGrams: input.fatGrams,
+    favorite: input.isFavorite,
+    notes: input.notes ?? undefined,
+    ingredients: input.ingredients,
+    instructions: input.instructions,
+  };
+}
+
+export async function fetchRecipes(): Promise<{ recipes: NativeRecipe[] }> {
+  const recipes = (await convexClient.query(
+    convexApi.recipes.list,
+    {},
+  )) as ConvexRecord[];
+  return { recipes: recipes.map(mapRecipe) };
+}
+
+export async function saveRecipe(
   input: NativeRecipeInput & { id?: string },
 ): Promise<NativeRecipe> {
-  return runEffect(postJson<NativeRecipe>("/api/health/recipes", input));
+  const id = (await convexClient.mutation(
+    convexApi.recipes.save,
+    saveInput(input),
+  )) as string;
+  const recipe = (await convexClient.query(convexApi.recipes.get, {
+    id,
+  })) as ConvexRecord;
+  return mapRecipe(recipe);
 }
 
 export function deleteRecipeById(id: string): Promise<unknown> {
-  return runEffect(deleteJson<unknown>("/api/health/recipes", { id }));
+  return convexClient.mutation(convexApi.recipes.remove, { id });
 }
 
-export function setRecipeFavorite(
+export async function setRecipeFavorite(
   id: string,
   isFavorite: boolean,
 ): Promise<NativeRecipe> {
-  return runEffect(
-    postJson<NativeRecipe>("/api/health/recipes/favorite", { id, isFavorite }),
-  );
+  await convexClient.mutation(convexApi.recipes.setFavorite, {
+    id,
+    favorite: isFavorite,
+  });
+  const recipe = (await convexClient.query(convexApi.recipes.get, {
+    id,
+  })) as ConvexRecord;
+  return mapRecipe(recipe);
 }
-
-export function importRecipeFromUrl(url: string): Promise<NativeRecipe> {
-  return runEffect(
-    postJson<NativeRecipe>("/api/health/recipes/import", { url }),
+export async function importRecipeFromUrl(url: string): Promise<NativeRecipe> {
+  const recipe = await convexClient.action(
+    convexApi.healthSearch.importRecipe,
+    {
+      url,
+    },
   );
+  return mapRecipe(recipe as ConvexRecord);
 }
 
 export function searchExternalRecipes(
   query: string,
 ): Promise<{ query: string; results: ExternalRecipeResult[] }> {
-  return runEffect(
-    requestJson<{ query: string; results: ExternalRecipeResult[] }>(
-      `/api/health/recipe-search?q=${encodeURIComponent(query)}`,
-    ),
-  );
+  return convexClient.action(convexApi.healthSearch.searchRecipes, {
+    query,
+  }) as Promise<{ query: string; results: ExternalRecipeResult[] }>;
 }
