@@ -6,6 +6,32 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { convexApi } from "@/lib/convex-functions";
 
+async function signInWithLocalKey(
+  signIn: (
+    provider: string,
+    params?: FormData | { key: string },
+  ) => Promise<unknown>,
+): Promise<boolean> {
+  try {
+    const response = await fetch("/api/local-key", { cache: "no-store" });
+    if (!response.ok) return false;
+    const body: unknown = await response.json();
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("key" in body) ||
+      typeof body.key !== "string" ||
+      !body.key
+    ) {
+      return false;
+    }
+    await signIn("local-key", { key: body.key });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function WorkspaceBootstrap({ children }: { children: ReactNode }) {
   const ensureDefault = useMutation(convexApi.workspaces.ensureDefault);
   const [ready, setReady] = useState(false);
@@ -40,8 +66,13 @@ export function ConvexSession({ children }: { children: ReactNode }) {
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [localAttempted, setLocalAttempted] = useState(false);
 
-  if (isLoading) {
+  useMountEffect(() => {
+    signInWithLocalKey(signIn).finally(() => setLocalAttempted(true));
+  });
+
+  if (isLoading || !localAttempted) {
     return (
       <main className="grid min-h-screen place-items-center">
         loading local workspace…
