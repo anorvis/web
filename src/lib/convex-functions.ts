@@ -1,11 +1,20 @@
 import { makeFunctionReference } from "convex/server";
 
-const query = (name: string) =>
-  makeFunctionReference<"query", Record<string, unknown>, never>(name);
+const query = <Return = never>(name: string) =>
+  makeFunctionReference<"query", Record<string, unknown>, Return>(name);
 const mutation = (name: string) =>
   makeFunctionReference<"mutation", Record<string, unknown>, never>(name);
 const action = (name: string) =>
   makeFunctionReference<"action", Record<string, unknown>, never>(name);
+
+export type IntegrationPublication = {
+  provider: string;
+  status: string;
+  sync: {
+    sequence: number;
+    lastSyncedAt: number | null;
+  };
+};
 
 export const convexApi = {
   workspaces: { ensureDefault: mutation("platform/workspace:ensureDefault") },
@@ -71,7 +80,7 @@ export const convexApi = {
     undoImport: mutation("capability/finance/import:undoImport"),
   },
   integrations: {
-    list: query("capability/integration:list"),
+    list: query<IntegrationPublication[]>("capability/integration:list"),
     disconnect: mutation("capability/integration:disconnect"),
     startSync: mutation("capability/integration:startSync"),
     syncJobStatus: query("capability/integration:syncJobStatus"),

@@ -7,6 +7,7 @@ import { cn } from "@anorvis/ui/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { useMemo, useRef, useState } from "react";
+import { MaintenancePanel } from "@/features/dev/components/maintenance-panel";
 import { MemoryPanel } from "@/features/dev/components/memory-panel";
 import {
   Metric,
@@ -196,20 +197,24 @@ export function DevPlatformDashboard() {
   } = useDevStore();
   const selectedRunIdRef = useRef<string | null>(null);
   const detailTabRef = useRef(detailTab);
+  const activeTabRef = useRef(activeTab);
   const refreshInFlightRef = useRef(false);
   const refreshAgainRef = useRef(false);
   const refreshTimerRef = useRef<number | null>(null);
+  activeTabRef.current = activeTab;
   detailTabRef.current = detailTab;
 
   const jobsQuery = useQuery({
     queryKey: queryKeys.dev.jobs(),
     queryFn: () => fetchJson<JobRecord[]>("/api/dev/jobs"),
     refetchInterval: 30_000,
+    enabled: activeTab === "jobs",
   });
   const runsQuery = useQuery({
     queryKey: queryKeys.dev.runs(),
     queryFn: () => fetchJson<RunRecord[]>("/api/dev/runs"),
     refetchInterval: 30_000,
+    enabled: activeTab === "jobs",
   });
   const jobs = isMounted ? (jobsQuery.data ?? []) : [];
   const runs = isMounted ? (runsQuery.data ?? []) : [];
@@ -270,6 +275,7 @@ export function DevPlatformDashboard() {
     queryFn: () => fetchJson<unknown[]>("/api/dev/os-events"),
     select: normalizeObservabilityEvents,
     staleTime: 0,
+    enabled: activeTab === "stream",
     refetchOnMount: "always",
   });
   const memoriesQuery = useQuery({
@@ -299,22 +305,31 @@ export function DevPlatformDashboard() {
     memoryGraph: isMounted ? (memoryGraphQuery.data ?? null) : null,
     output: isMounted ? (outputQuery.data?.output ?? null) : null,
     piSession: isMounted ? (piSessionQuery.data ?? null) : null,
-    loading: !isMounted || jobsQuery.isLoading || runsQuery.isLoading,
+    loading:
+      activeTab === "jobs" &&
+      (!isMounted || jobsQuery.isLoading || runsQuery.isLoading),
     refreshing:
-      jobsQuery.isFetching ||
-      runsQuery.isFetching ||
-      logsQuery.isFetching ||
-      outputQuery.isFetching ||
-      piSessionQuery.isFetching,
+      activeTab === "jobs" &&
+      (jobsQuery.isFetching ||
+        runsQuery.isFetching ||
+        logsQuery.isFetching ||
+        outputQuery.isFetching ||
+        piSessionQuery.isFetching),
     sseStatus: isMounted ? sseStatus : "connecting",
     error:
-      isMounted && error
+      activeTab === "jobs" && isMounted && error
         ? error
-        : isMounted && jobsQuery.error instanceof Error
+        : activeTab === "jobs" &&
+            isMounted &&
+            jobsQuery.error instanceof Error
           ? jobsQuery.error.message
-          : isMounted && runsQuery.error instanceof Error
+          : activeTab === "jobs" &&
+              isMounted &&
+              runsQuery.error instanceof Error
             ? runsQuery.error.message
-            : isMounted && logsQuery.error instanceof Error
+            : activeTab === "jobs" &&
+                isMounted &&
+                logsQuery.error instanceof Error
               ? logsQuery.error.message
               : null,
   };
@@ -376,26 +391,40 @@ export function DevPlatformDashboard() {
     refreshInFlightRef.current = true;
 
     try {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.dev.jobs() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.dev.runs() }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.dev.memories() }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.dev.memoryGraph(),
-        }),
-      ]);
-      const requestedRunId = selectedRunIdRef.current;
-      if (requestedRunId) {
+      const requestedTab = activeTabRef.current;
+      if (requestedTab === "operations") {
         await queryClient.invalidateQueries({
-          queryKey: queryKeys.dev.logs(requestedRunId),
+          queryKey: queryKeys.dev.maintenance(),
         });
+      } else if (requestedTab === "memory") {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.dev.memories() }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.dev.memoryGraph(),
+          }),
+        ]);
+      } else if (requestedTab === "stream") {
         await queryClient.invalidateQueries({
-          queryKey: queryKeys.dev.output(requestedRunId),
+          queryKey: queryKeys.dev.osEvents(),
         });
-        if (detailTabRef.current === "pi") {
+      } else {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.dev.jobs() }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.dev.runs() }),
+        ]);
+        const requestedRunId = selectedRunIdRef.current;
+        if (requestedRunId) {
           await queryClient.invalidateQueries({
-            queryKey: queryKeys.dev.piSession(requestedRunId),
+            queryKey: queryKeys.dev.logs(requestedRunId),
           });
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.dev.output(requestedRunId),
+          });
+          if (detailTabRef.current === "pi") {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.dev.piSession(requestedRunId),
+            });
+          }
         }
       }
       setSseStatus("connected");
@@ -499,37 +528,52 @@ export function DevPlatformDashboard() {
 
   return (
     <div className="space-y-4">
-      <div className={workspacePageStyles.metricsStrip}>
-        <Metric
-          label="anorvis-os"
-          value={state.error ? "degraded" : "online"}
-        />
-        <Metric
-          label="running"
-          value={String(statusCount(state.runs, "running"))}
-        />
-        <Metric
-          label="queued"
-          value={String(
-            statusCount(state.runs, "queued") +
-              state.jobs.filter(
-                (job) =>
-                  job.status === "idle" &&
-                  job.enabled &&
-                  job.nextRunAt &&
-                  Date.parse(job.nextRunAt) <= Date.now(),
-              ).length,
-          )}
-        />
-        <Metric
-          label="done"
-          value={String(statusCount(state.runs, "succeeded"))}
-        />
-        <Metric label="sse" value={state.sseStatus} />
-      </div>
+      {activeTab !== "operations" ? (
+        <div className={workspacePageStyles.metricsStrip}>
+          <Metric
+            label="anorvis-os"
+            value={state.error ? "degraded" : "online"}
+          />
+          <Metric
+            label="running"
+            value={String(statusCount(state.runs, "running"))}
+          />
+          <Metric
+            label="queued"
+            value={String(
+              statusCount(state.runs, "queued") +
+                state.jobs.filter(
+                  (job) =>
+                    job.status === "idle" &&
+                    job.enabled &&
+                    job.nextRunAt &&
+                    Date.parse(job.nextRunAt) <= Date.now(),
+                ).length,
+            )}
+          />
+          <Metric
+            label="done"
+            value={String(statusCount(state.runs, "succeeded"))}
+          />
+          <Metric label="sse" value={state.sseStatus} />
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              workspacePageStyles.actionButton,
+              activeTab === "operations" &&
+                "border-foreground text-foreground",
+            )}
+            onClick={() => setActiveTab("operations")}
+          >
+            operations
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -593,7 +637,9 @@ export function DevPlatformDashboard() {
         </Card>
       )}
 
-      {activeTab === "jobs" ? (
+      {activeTab === "operations" ? (
+        <MaintenancePanel />
+      ) : activeTab === "jobs" ? (
         <div
           className={cn(
             "grid items-stretch gap-4 lg:grid-cols-[340px_minmax(0,1fr)]",
