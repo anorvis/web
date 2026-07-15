@@ -41,6 +41,7 @@ type RawTag = {
   _id: string;
   name: string;
   color?: string;
+  systemKey?: string;
   hidden: boolean;
   createdAt: number;
   updatedAt: number;
@@ -115,7 +116,7 @@ function mapTag(tag: RawTag): LifeTag {
     name: tag.name,
     color: tag.color ?? null,
     hidden: tag.hidden,
-    system: false,
+    system: tag.systemKey !== undefined,
     createdAt: new Date(tag.createdAt).toISOString(),
     updatedAt: new Date(tag.updatedAt).toISOString(),
   };
