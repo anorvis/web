@@ -85,11 +85,20 @@ type RawEvent = {
   readOnly: boolean;
 };
 
+type RawWorkout = {
+  _id: string;
+  title: string;
+  startedAt: number;
+  durationSeconds: number;
+  source: string;
+};
+
 type RawSnapshot = {
   tasks: RawTask[];
   sessions: RawSession[];
   events: RawEvent[];
   tags: RawTag[];
+  workouts: RawWorkout[];
 };
 
 function day(value: Date): string {
@@ -163,6 +172,42 @@ function mapEvent(event: RawEvent, tags: RawTag[]): CalendarEvent {
     calendarId: event.calendarId ?? null,
     readOnly: event.readOnly,
   };
+}
+
+export function workoutEvents(
+  // Exported for tests: this is the exact projection fetchCalendarEvents and
+  // buildLifeSnapshot feed into the calendar.
+  workouts: RawWorkout[],
+  tags: RawTag[],
+): CalendarEvent[] {
+  // The Hevy tag row is integration-owned; resolve its actual display name by
+  // systemKey (a name collision can mint e.g. "Hevy (integration)").
+  const hevy = tags.find((tag) => tag.systemKey === "hevy");
+  return workouts.map((workout) => {
+    const start = new Date(workout.startedAt);
+    const end = new Date(
+      workout.startedAt + Math.max(workout.durationSeconds, 1) * 1000,
+    );
+    const startMinute = minutes(workout.startedAt);
+    const fromHevy = workout.source === "hevy";
+    return {
+      id: `workout:${workout._id}`,
+      summary: workout.title,
+      startMinute,
+      endMinute: Math.max(
+        startMinute + 1,
+        end.getHours() * 60 + end.getMinutes(),
+      ),
+      type: "default" as const,
+      dayIndex: start.getDay(),
+      date: day(start),
+      tag: fromHevy ? (hevy?.name ?? "Hevy") : "health",
+      tagColor: fromHevy ? (hevy?.color ?? null) : null,
+      source: fromHevy ? "hevy" : "health",
+      calendarId: fromHevy ? "hevy" : "health",
+      readOnly: true,
+    };
+  });
 }
 
 function taskLabel(
@@ -278,7 +323,12 @@ async function buildLifeSnapshot(): Promise<LifeSnapshot> {
     mapEvent(event, snapshot.tags),
   );
   const taskCalendar = taskEvents(snapshot);
-  const weekCalendarEvents = [...calendar, ...taskCalendar].sort(
+  const workoutCalendar = workoutEvents(snapshot.workouts, snapshot.tags);
+  const weekCalendarEvents = [
+    ...calendar,
+    ...workoutCalendar,
+    ...taskCalendar,
+  ].sort(
     (a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute,
   );
   const today = day(now);
@@ -393,6 +443,7 @@ export function fetchCalendarEvents(
     ]);
     return [
       ...events.map((event) => mapEvent(event, snapshot.tags)),
+      ...workoutEvents(snapshot.workouts, snapshot.tags),
       ...taskEvents(snapshot),
     ].sort(
       (a, b) => a.date.localeCompare(b.date) || a.startMinute - b.startMinute,
