@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 type DetailTab = "logs" | "output" | "pi";
-type ActiveTab = "jobs" | "memory" | "stream";
+type ActiveTab = "operations" | "jobs" | "memory" | "stream";
 type SseStatus = "connecting" | "connected" | "fallback";
 
 type OsEvent = {
@@ -30,7 +30,7 @@ type DevStore = {
 
 export const useDevStore = create<DevStore>((set) => ({
   selectedRunId: null,
-  activeTab: "stream",
+  activeTab: "operations",
   detailTab: "logs",
   sseStatus: "connecting",
   liveOsEvents: [],

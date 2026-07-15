@@ -3,6 +3,7 @@
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { ConvexLiveBridge } from "@/components/providers/convex-live-bridge";
 import { ConvexSession } from "@/components/providers/convex-session";
 import { ThemeProvider } from "@/components/utils/theme-provider";
 import { useMountEffect } from "@/hooks/use-mount-effect";
@@ -25,6 +26,7 @@ export function WebAppProviders({ children }: { children: ReactNode }) {
     <ConvexAuthProvider client={convexClient}>
       <ConvexSession>
         <QueryClientProvider client={queryClient}>
+          <ConvexLiveBridge />
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
