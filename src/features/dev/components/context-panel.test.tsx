@@ -88,4 +88,28 @@ describe("context operations panel", () => {
     expect(errorHtml).toContain("Context data unavailable");
     expect(errorHtml).not.toContain("/Users/alice/private/project");
   });
+
+  it("degrades finite out-of-range epochs to unavailable timestamps", () => {
+    const overview = normalizeContextOverview({
+      context: {
+        summaries: [
+          {
+            summary: "Boundary summary",
+            updatedAt: 8_640_000_000_000_001,
+          },
+        ],
+        events: [
+          {
+            id: "boundary",
+            occurredAt: Number.MAX_VALUE,
+          },
+        ],
+        wikiPages: [],
+      },
+    });
+
+    expect(overview.context?.summaries[0]?.updatedAt).toBeNull();
+    expect(overview.context?.events[0]?.occurredAt).toBeNull();
+  });
+
 });

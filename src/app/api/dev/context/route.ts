@@ -2,6 +2,42 @@ import { NextResponse } from "next/server";
 import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
 import { errorMessage } from "@/lib/effect/errors";
 import { isRecord } from "@/lib/guards";
+import { hostnameFromHeader } from "@/lib/request-host";
+
+const LOCAL_HOSTS: Record<string, true> = {
+  localhost: true,
+  "127.0.0.1": true,
+  "::1": true,
+  "[::1]": true,
+};
+
+function isDirectLoopback(request: Request): boolean {
+  let urlHost: string;
+  try {
+    urlHost = new URL(request.url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!LOCAL_HOSTS[urlHost]) return false;
+
+  const hostHeader = request.headers.get("host");
+  if (hostHeader !== null) {
+    const host = hostnameFromHeader(hostHeader);
+    if (!host || !LOCAL_HOSTS[host]) return false;
+  }
+
+  for (const [name] of request.headers) {
+    const lowerName = name.toLowerCase();
+    if (
+      lowerName === "forwarded" ||
+      lowerName.startsWith("x-forwarded-")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,7 +152,10 @@ function sanitizeCompile(value: unknown): SanitizedContext {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!isDirectLoopback(request)) {
+    return NextResponse.json({ error: "local only" }, { status: 403 });
+  }
   const [status, compile] = await Promise.allSettled([
     gatewayFetchJson<unknown>("/v1/os/status"),
     gatewayFetchJson<unknown>("/v1/context/compile", {

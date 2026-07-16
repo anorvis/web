@@ -16,6 +16,42 @@ describe("GET /api/dev/context", () => {
     gatewayErrorResponse.mockReset();
   });
 
+  it.each(["localhost", "127.0.0.1", "[::1]"])(
+    "allows direct loopback GETs on %s",
+    async (host) => {
+      gatewayFetchJson.mockResolvedValue({});
+
+      const response = await GET(
+        new Request(`http://${host}:3000/api/dev/context`, {
+          headers: { host: `${host}:3000` },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+    },
+  );
+
+  it("denies remote hosts and forwarded requests before reading owner context", async () => {
+    const requests = [
+      new Request("http://192.168.1.20:3000/api/dev/context"),
+      new Request("http://localhost:3000/api/dev/context", {
+        headers: { host: "192.168.1.20:3000" },
+      }),
+      new Request("http://localhost:3000/api/dev/context", {
+        headers: { forwarded: "for=192.168.1.20;host=localhost" },
+      }),
+      new Request("http://[::1]:3000/api/dev/context", {
+        headers: { "x-forwarded-for": "127.0.0.1" },
+      }),
+    ];
+
+    for (const request of requests) {
+      const response = await GET(request);
+      expect(response.status).toBe(403);
+    }
+    expect(gatewayFetchJson).not.toHaveBeenCalled();
+  });
+
   it("compiles owner scope with a bounded limit and strips private bodies", async () => {
     gatewayFetchJson.mockImplementation(async (pathname: string) => {
       if (pathname === "/v1/os/status") {
@@ -58,7 +94,9 @@ describe("GET /api/dev/context", () => {
       };
     });
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://127.0.0.1:3000/api/dev/context"),
+    );
     const payload = await response.json();
 
     expect(gatewayFetchJson).toHaveBeenCalledWith("/v1/os/status");
@@ -111,7 +149,9 @@ describe("GET /api/dev/context", () => {
       throw new Error("context client is not configured");
     });
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://localhost:3000/api/dev/context"),
+    );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -130,7 +170,9 @@ describe("GET /api/dev/context", () => {
     gatewayFetchJson.mockRejectedValue(error);
     gatewayErrorResponse.mockReturnValue(degraded);
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://[::1]:3000/api/dev/context"),
+    );
 
     expect(gatewayErrorResponse).toHaveBeenCalledWith(error);
     expect(response.status).toBe(503);

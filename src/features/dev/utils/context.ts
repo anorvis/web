@@ -44,9 +44,11 @@ function text(value: unknown, fallback: string): string {
 
 function isoDate(value: unknown): string | null {
   // The proxy sends epoch milliseconds; anything non-positive is treated as unknown.
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? new Date(value).toISOString()
-    : null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function summary(value: unknown): ContextSummary | null {
