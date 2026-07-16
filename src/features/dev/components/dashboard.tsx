@@ -7,7 +7,7 @@ import { cn } from "@anorvis/ui/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { useMemo, useRef, useState } from "react";
-import { MaintenancePanel } from "@/features/dev/components/maintenance-panel";
+import { ContextPanel } from "@/features/dev/components/context-panel";
 import { MemoryPanel } from "@/features/dev/components/memory-panel";
 import {
   Metric,
@@ -319,9 +319,7 @@ export function DevPlatformDashboard() {
     error:
       activeTab === "jobs" && isMounted && error
         ? error
-        : activeTab === "jobs" &&
-            isMounted &&
-            jobsQuery.error instanceof Error
+        : activeTab === "jobs" && isMounted && jobsQuery.error instanceof Error
           ? jobsQuery.error.message
           : activeTab === "jobs" &&
               isMounted &&
@@ -394,7 +392,7 @@ export function DevPlatformDashboard() {
       const requestedTab = activeTabRef.current;
       if (requestedTab === "operations") {
         await queryClient.invalidateQueries({
-          queryKey: queryKeys.dev.maintenance(),
+          queryKey: queryKeys.dev.context(),
         });
       } else if (requestedTab === "memory") {
         await Promise.all([
@@ -567,8 +565,7 @@ export function DevPlatformDashboard() {
             size="sm"
             className={cn(
               workspacePageStyles.actionButton,
-              activeTab === "operations" &&
-                "border-foreground text-foreground",
+              activeTab === "operations" && "border-foreground text-foreground",
             )}
             onClick={() => setActiveTab("operations")}
           >
@@ -638,7 +635,7 @@ export function DevPlatformDashboard() {
       )}
 
       {activeTab === "operations" ? (
-        <MaintenancePanel />
+        <ContextPanel />
       ) : activeTab === "jobs" ? (
         <div
           className={cn(

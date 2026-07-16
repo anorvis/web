@@ -2,14 +2,12 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
-
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+import { isDirectLoopbackRequest } from "@/lib/direct-loopback-request";
 
 // Machine-local trust: hand the owner setup key to the browser session running
 // on this machine so sign-in is silent. Refused for any non-loopback request.
 export function GET(request: Request) {
-  const host = new URL(request.url).hostname;
-  if (!LOCAL_HOSTS.has(host)) {
+  if (!isDirectLoopbackRequest(request)) {
     return NextResponse.json({ error: "local only" }, { status: 403 });
   }
   // Resolved per request so the home directory is read at call time.

@@ -1,7 +1,6 @@
 "use client";
 
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { invalidateCalendarCaches } from "@/features/life/lib/calendar-cache";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { convexClient } from "@/lib/convex-client";
 import { convexApi, type IntegrationPublication } from "@/lib/convex-functions";
@@ -177,7 +176,8 @@ export function ConvexLiveBridge() {
     subscribeConvexLiveUpdates(convexClient, {
       queryClient,
       clearLife: clearLifeReadCache,
-      clearCalendar: invalidateCalendarCaches,
+      clearCalendar: () =>
+        window.dispatchEvent(new Event("anorvis:calendar-cache-invalidated")),
       onError: reportLiveError,
     }),
   );
