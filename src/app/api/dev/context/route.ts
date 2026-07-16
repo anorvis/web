@@ -1,43 +1,8 @@
 import { NextResponse } from "next/server";
 import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { isDirectLoopbackRequest } from "@/lib/direct-loopback-request";
 import { errorMessage } from "@/lib/effect/errors";
 import { isRecord } from "@/lib/guards";
-import { hostnameFromHeader } from "@/lib/request-host";
-
-const LOCAL_HOSTS: Record<string, true> = {
-  localhost: true,
-  "127.0.0.1": true,
-  "::1": true,
-  "[::1]": true,
-};
-
-function isDirectLoopback(request: Request): boolean {
-  let urlHost: string;
-  try {
-    urlHost = new URL(request.url).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  if (!LOCAL_HOSTS[urlHost]) return false;
-
-  const hostHeader = request.headers.get("host");
-  if (hostHeader !== null) {
-    const host = hostnameFromHeader(hostHeader);
-    if (!host || !LOCAL_HOSTS[host]) return false;
-  }
-
-  for (const [name] of request.headers) {
-    const lowerName = name.toLowerCase();
-    if (
-      lowerName === "forwarded" ||
-      lowerName.startsWith("x-forwarded-")
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,7 +52,9 @@ function sanitizeStatus(value: unknown): SanitizedStatus {
   return {
     ok: root.ok === true,
     services: Array.isArray(root.services)
-      ? root.services.filter((entry): entry is string => typeof entry === "string")
+      ? root.services.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
       : [],
   };
 }
@@ -102,7 +69,9 @@ function sanitizeEvent(value: unknown): SanitizedEvent | null {
     surface: text(source.surface) ?? "unknown",
     visibility: text(source.visibility) ?? "unknown",
     occurredAt:
-      typeof value.occurredAt === "number" && Number.isFinite(value.occurredAt) && value.occurredAt > 0
+      typeof value.occurredAt === "number" &&
+      Number.isFinite(value.occurredAt) &&
+      value.occurredAt > 0
         ? value.occurredAt
         : null,
   };
@@ -117,7 +86,9 @@ function sanitizeSummary(value: unknown): SanitizedSummary | null {
     scopeKind: text(value.scopeKind) ?? "owner",
     visibility: text(value.visibility),
     updatedAt:
-      typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) && value.updatedAt > 0
+      typeof value.updatedAt === "number" &&
+      Number.isFinite(value.updatedAt) &&
+      value.updatedAt > 0
         ? value.updatedAt
         : null,
   };
@@ -153,7 +124,7 @@ function sanitizeCompile(value: unknown): SanitizedContext {
 }
 
 export async function GET(request: Request) {
-  if (!isDirectLoopback(request)) {
+  if (!isDirectLoopbackRequest(request)) {
     return NextResponse.json({ error: "local only" }, { status: 403 });
   }
   const [status, compile] = await Promise.allSettled([
@@ -174,7 +145,8 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       os: status.status === "fulfilled" ? sanitizeStatus(status.value) : null,
-      osError: status.status === "rejected" ? errorMessage(status.reason) : null,
+      osError:
+        status.status === "rejected" ? errorMessage(status.reason) : null,
       context:
         compile.status === "fulfilled" ? sanitizeCompile(compile.value) : null,
       contextError:

@@ -106,7 +106,9 @@ export function normalizeContextOverview(value: unknown): ContextOverview {
         events: (Array.isArray(snapshot.events) ? snapshot.events : [])
           .map(event)
           .filter((entry): entry is ContextEventMeta => entry !== null)
-          .sort((a, b) => (b.occurredAt ?? "").localeCompare(a.occurredAt ?? "")),
+          .sort((a, b) =>
+            (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
+          ),
         wikiPages: (Array.isArray(snapshot.wikiPages) ? snapshot.wikiPages : [])
           .map(wikiPage)
           .filter((entry): entry is ContextWikiPage => entry !== null),

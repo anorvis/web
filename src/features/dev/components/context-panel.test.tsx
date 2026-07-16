@@ -111,5 +111,4 @@ describe("context operations panel", () => {
     expect(overview.context?.summaries[0]?.updatedAt).toBeNull();
     expect(overview.context?.events[0]?.occurredAt).toBeNull();
   });
-
 });

@@ -32,7 +32,7 @@ export default defineConfig({
       },
     },
     {
-      command: "bun ./node_modules/next/dist/bin/next dev",
+      command: "node scripts/dev.js",
       url: "http://localhost:3000",
       reuseExistingServer: true,
       timeout: 120000,

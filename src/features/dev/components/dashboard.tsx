@@ -319,9 +319,7 @@ export function DevPlatformDashboard() {
     error:
       activeTab === "jobs" && isMounted && error
         ? error
-        : activeTab === "jobs" &&
-            isMounted &&
-            jobsQuery.error instanceof Error
+        : activeTab === "jobs" && isMounted && jobsQuery.error instanceof Error
           ? jobsQuery.error.message
           : activeTab === "jobs" &&
               isMounted &&
@@ -567,8 +565,7 @@ export function DevPlatformDashboard() {
             size="sm"
             className={cn(
               workspacePageStyles.actionButton,
-              activeTab === "operations" &&
-                "border-foreground text-foreground",
+              activeTab === "operations" && "border-foreground text-foreground",
             )}
             onClick={() => setActiveTab("operations")}
           >

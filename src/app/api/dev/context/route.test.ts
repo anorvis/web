@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const gatewayFetchJson = vi.hoisted(() => vi.fn());
 const gatewayErrorResponse = vi.hoisted(() => vi.fn());
@@ -8,12 +8,21 @@ vi.mock("@/lib/anorvis-gateway", () => ({
   gatewayErrorResponse,
 }));
 
+const originalBindHost = process.env.ANORVIS_WEB_BIND_HOST;
+
 import { GET } from "./route";
 
 describe("GET /api/dev/context", () => {
   beforeEach(() => {
     gatewayFetchJson.mockReset();
     gatewayErrorResponse.mockReset();
+    process.env.ANORVIS_WEB_BIND_HOST = "127.0.0.1";
+  });
+
+  afterEach(() => {
+    if (originalBindHost === undefined)
+      delete process.env.ANORVIS_WEB_BIND_HOST;
+    else process.env.ANORVIS_WEB_BIND_HOST = originalBindHost;
   });
 
   it.each(["localhost", "127.0.0.1", "[::1]"])(
@@ -31,6 +40,50 @@ describe("GET /api/dev/context", () => {
     },
   );
 
+  it("allows Next loopback forwarded headers", async () => {
+    gatewayFetchJson.mockResolvedValue({});
+
+    const response = await GET(
+      new Request("http://localhost:3000/api/dev/context", {
+        headers: {
+          host: "localhost:3000",
+          "x-forwarded-for": "127.0.0.1",
+          "x-forwarded-host": "localhost:3000",
+          "x-forwarded-port": "3000",
+          "x-forwarded-proto": "http",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("denies a loopback request when process bind evidence is missing", async () => {
+    delete process.env.ANORVIS_WEB_BIND_HOST;
+
+    const response = await GET(
+      new Request("http://localhost:3000/api/dev/context", {
+        headers: { host: "localhost:3000" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(gatewayFetchJson).not.toHaveBeenCalled();
+  });
+
+  it("denies a LAN-bound process even with a spoofed localhost Host", async () => {
+    process.env.ANORVIS_WEB_BIND_HOST = "0.0.0.0";
+
+    const response = await GET(
+      new Request("http://localhost:3000/api/dev/context", {
+        headers: { host: "localhost:3000" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(gatewayFetchJson).not.toHaveBeenCalled();
+  });
+
   it("denies remote hosts and forwarded requests before reading owner context", async () => {
     const requests = [
       new Request("http://192.168.1.20:3000/api/dev/context"),
@@ -41,7 +94,7 @@ describe("GET /api/dev/context", () => {
         headers: { forwarded: "for=192.168.1.20;host=localhost" },
       }),
       new Request("http://[::1]:3000/api/dev/context", {
-        headers: { "x-forwarded-for": "127.0.0.1" },
+        headers: { "x-forwarded-for": "192.168.1.20" },
       }),
     ];
 

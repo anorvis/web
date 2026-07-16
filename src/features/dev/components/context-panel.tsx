@@ -16,6 +16,14 @@ import type {
 } from "@/features/dev/utils/context";
 import { queryKeys } from "@/lib/query/keys";
 
+const LOADING_METRIC_KEYS = [
+  "gateway",
+  "events",
+  "summaries",
+  "wiki",
+  "monitor",
+] as const;
+
 function formatDate(value: string | null): string {
   if (!value) return "unknown";
   return new Intl.DateTimeFormat(undefined, {
@@ -95,14 +103,18 @@ export function ContextPanelView({
 }) {
   if (loading) {
     return (
-      <div className="space-y-4" aria-busy="true" aria-label="Loading operations">
+      <output
+        className="block space-y-4"
+        aria-busy="true"
+        aria-label="Loading operations"
+      >
         <div className={workspacePageStyles.metricsStrip}>
-          {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton key={index} className="h-14 rounded-none" />
+          {LOADING_METRIC_KEYS.map((key) => (
+            <Skeleton key={key} className="h-14 rounded-none" />
           ))}
         </div>
         <Skeleton className="h-64 rounded-none" />
-      </div>
+      </output>
     );
   }
 
@@ -135,7 +147,10 @@ export function ContextPanelView({
   const monitorRegistered = os?.services.includes("context") ?? false;
 
   return (
-    <section className="space-y-4" aria-label="Shared context operations overview">
+    <section
+      className="space-y-4"
+      aria-label="Shared context operations overview"
+    >
       <div className={workspacePageStyles.metricsStrip}>
         <Metric label="os gateway" value={os?.ok ? "online" : "offline"} />
         <Metric label="services" value={String(os?.services.length ?? 0)} />
@@ -175,10 +190,14 @@ export function ContextPanelView({
                 >
                   <thead>
                     <tr className="border-b border-border">
-                      <th className={workspacePageStyles.tableHead}>occurred</th>
+                      <th className={workspacePageStyles.tableHead}>
+                        occurred
+                      </th>
                       <th className={workspacePageStyles.tableHead}>kind</th>
                       <th className={workspacePageStyles.tableHead}>surface</th>
-                      <th className={workspacePageStyles.tableHead}>visibility</th>
+                      <th className={workspacePageStyles.tableHead}>
+                        visibility
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -231,17 +250,22 @@ export function ContextPanelView({
               variant={monitorRegistered ? "default" : "destructive"}
               className={workspacePageStyles.badgeSmall}
             >
-              {monitorRegistered ? "context service registered" : "context service missing"}
+              {monitorRegistered
+                ? "context service registered"
+                : "context service missing"}
             </Badge>
             <Badge
               variant={context ? "default" : "outline"}
               className={workspacePageStyles.badgeSmall}
             >
-              {context ? "compile pipeline reachable" : "compile pipeline offline"}
+              {context
+                ? "compile pipeline reachable"
+                : "compile pipeline offline"}
             </Badge>
             {context && context.summaries.length > 0 ? (
               <span className="text-[0.6rem] text-muted-foreground">
-                last summary {formatDate(context.summaries[0]?.updatedAt ?? null)}
+                last summary{" "}
+                {formatDate(context.summaries[0]?.updatedAt ?? null)}
               </span>
             ) : null}
           </div>
