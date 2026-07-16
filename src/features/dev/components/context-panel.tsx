@@ -8,11 +8,16 @@ import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDevContext } from "@/features/dev/api/dev";
-import { Metric } from "@/features/dev/components/panels";
+import {
+  Metric,
+  PagerControls,
+  usePagedItems,
+} from "@/features/dev/components/panels";
 import type {
   ContextEventMeta,
   ContextOverview,
   ContextSummary,
+  ContextWikiPage,
 } from "@/features/dev/utils/context";
 import { queryKeys } from "@/lib/query/keys";
 
@@ -87,6 +92,79 @@ function SummaryRow({ entry }: { entry: ContextSummary }) {
         {formatDate(entry.updatedAt)}
       </p>
     </li>
+  );
+}
+
+function EventsTable({ events }: { events: ContextEventMeta[] }) {
+  const { pageItems, pager } = usePagedItems(events);
+  return (
+    <>
+      <div className={workspacePageStyles.horizontalScroller}>
+        <table
+          className="w-full min-w-xl border-collapse text-left"
+          aria-label="Recent sanitized context events"
+        >
+          <thead>
+            <tr className="border-b border-border">
+              <th className={workspacePageStyles.tableHead}>occurred</th>
+              <th className={workspacePageStyles.tableHead}>kind</th>
+              <th className={workspacePageStyles.tableHead}>surface</th>
+              <th className={workspacePageStyles.tableHead}>visibility</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageItems.map((event, index) => (
+              <EventRow
+                key={event.id || `${pager.page}-${index}`}
+                event={event}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <PagerControls pager={pager} label="context events" />
+    </>
+  );
+}
+
+function SummaryList({ summaries }: { summaries: ContextSummary[] }) {
+  const { pageItems, pager } = usePagedItems(summaries);
+  return (
+    <>
+      <ul className={workspacePageStyles.list}>
+        {pageItems.map((entry, index) => (
+          <SummaryRow
+            key={`${entry.updatedAt ?? "summary"}:${pager.page}-${index}`}
+            entry={entry}
+          />
+        ))}
+      </ul>
+      <PagerControls pager={pager} label="monitor summaries" />
+    </>
+  );
+}
+
+function WikiPagesList({ pages }: { pages: ContextWikiPage[] }) {
+  const { pageItems, pager } = usePagedItems(pages);
+  return (
+    <div className="space-y-2">
+      <ul className={workspacePageStyles.list}>
+        {pageItems.map((page) => (
+          <li
+            key={page.path}
+            className="flex items-baseline justify-between gap-3"
+          >
+            <span className="truncate text-[0.65rem] text-foreground">
+              {page.title}
+            </span>
+            <span className="shrink-0 text-[0.55rem] text-muted-foreground">
+              {page.path}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <PagerControls pager={pager} label="wiki pages" />
+    </div>
   );
 }
 
@@ -183,30 +261,7 @@ export function ContextPanelView({
                 activity.
               </EmptyPanel>
             ) : (
-              <div className={workspacePageStyles.horizontalScroller}>
-                <table
-                  className="w-full min-w-xl border-collapse text-left"
-                  aria-label="Recent sanitized context events"
-                >
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className={workspacePageStyles.tableHead}>
-                        occurred
-                      </th>
-                      <th className={workspacePageStyles.tableHead}>kind</th>
-                      <th className={workspacePageStyles.tableHead}>surface</th>
-                      <th className={workspacePageStyles.tableHead}>
-                        visibility
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {context.events.map((event, index) => (
-                      <EventRow key={event.id || index} event={event} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <EventsTable events={context.events} />
             )}
           </CardContent>
         </Card>
@@ -223,14 +278,7 @@ export function ContextPanelView({
                 The Monitor has not distilled any summaries yet.
               </EmptyPanel>
             ) : (
-              <ul className={workspacePageStyles.list}>
-                {context.summaries.map((entry, index) => (
-                  <SummaryRow
-                    key={`${entry.updatedAt ?? "summary"}:${index}`}
-                    entry={entry}
-                  />
-                ))}
-              </ul>
+              <SummaryList summaries={context.summaries} />
             )}
           </CardContent>
         </Card>
@@ -270,21 +318,7 @@ export function ContextPanelView({
             ) : null}
           </div>
           {context && context.wikiPages.length > 0 ? (
-            <ul className={workspacePageStyles.list}>
-              {context.wikiPages.map((page) => (
-                <li
-                  key={page.path}
-                  className="flex items-baseline justify-between gap-3"
-                >
-                  <span className="truncate text-[0.65rem] text-foreground">
-                    {page.title}
-                  </span>
-                  <span className="shrink-0 text-[0.55rem] text-muted-foreground">
-                    {page.path}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <WikiPagesList pages={context.wikiPages} />
           ) : null}
         </CardContent>
       </Card>

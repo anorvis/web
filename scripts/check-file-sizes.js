@@ -5,7 +5,6 @@ const srcRoot = path.resolve(__dirname, "..", "src");
 const componentLimit = 700;
 const routeLimit = 450;
 const allowedLargeFiles = new Map([
-  ["features/dev/components/memory-panel.tsx", "legacy oversized component"],
   [
     "features/life/components/calendar-time-grid.tsx",
     "legacy oversized component",

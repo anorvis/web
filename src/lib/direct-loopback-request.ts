@@ -7,7 +7,7 @@ const LOCAL_HOSTS: Record<string, true> = {
   "[::1]": true,
 };
 
-function isLoopbackHost(value: string | null): boolean {
+export function isLoopbackHost(value: string | null): boolean {
   if (!value) return false;
   const host = value.trim().toLowerCase();
   const normalized =

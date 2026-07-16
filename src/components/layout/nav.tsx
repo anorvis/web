@@ -21,7 +21,7 @@ import {
   preferredCurrencies,
   useFinancePreferences,
 } from "@/lib/stores/finance-preferences";
-import { developerNavItem, workspaceNavItems } from "./config";
+import { workspaceNavItems } from "./config";
 
 const isActiveLink = (pathname: string, href: string) => {
   if (href === "/") {
@@ -74,19 +74,6 @@ export function WorkspaceNav() {
         </nav>
       </div>
       <div className={workspaceStyles.navActions}>
-        <Link
-          href={developerNavItem.href}
-          prefetch
-          onPointerEnter={() => prefetch(developerNavItem.href)}
-          onFocus={() => prefetch(developerNavItem.href)}
-          className={cn(
-            workspaceStyles.navLink,
-            isActiveLink(pathname, developerNavItem.href) &&
-              workspaceStyles.navLinkActive,
-          )}
-        >
-          {developerNavItem.label}
-        </Link>
         {mounted ? (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>

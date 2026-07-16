@@ -36,15 +36,14 @@ export const queryKeys = {
     snaptradeSettings: () => ["finance", "snaptrade", "settings"] as const,
   },
   dev: {
-    runs: () => ["dev", "runs"] as const,
-    jobs: () => ["dev", "jobs"] as const,
-    osEvents: () => ["dev", "os-events"] as const,
-    logs: (runId: string) => ["dev", "runs", runId, "logs"] as const,
-    output: (runId: string) => ["dev", "runs", runId, "output"] as const,
-    piSession: (runId: string) => ["dev", "runs", runId, "pi-session"] as const,
-    memories: () => ["dev", "memories"] as const,
-    memoryGraph: () => ["dev", "memories", "graph"] as const,
     context: () => ["dev", "context"] as const,
+    maintainerStatus: () => ["dev", "maintainer", "status"] as const,
+    maintainerTickets: (group: string, page: number) =>
+      ["dev", "maintainer", "tickets", group, page] as const,
+    maintainerTicketsRoot: () => ["dev", "maintainer", "tickets"] as const,
+    maintainerSessions: (page: number) =>
+      ["dev", "maintainer", "sessions", page] as const,
+    maintainerSessionsRoot: () => ["dev", "maintainer", "sessions"] as const,
   },
   spotify: {
     nowPlaying: () => ["spotify", "now-playing"] as const,
