@@ -44,7 +44,7 @@ export const queryKeys = {
     piSession: (runId: string) => ["dev", "runs", runId, "pi-session"] as const,
     memories: () => ["dev", "memories"] as const,
     memoryGraph: () => ["dev", "memories", "graph"] as const,
-    maintenance: () => ["dev", "maintenance"] as const,
+    context: () => ["dev", "context"] as const,
   },
   spotify: {
     nowPlaying: () => ["spotify", "now-playing"] as const,

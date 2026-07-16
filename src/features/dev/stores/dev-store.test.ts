@@ -7,9 +7,9 @@ afterEach(() => {
 });
 
 describe("dev operations state", () => {
-  it("starts on operations and keeps its maintenance query isolated", () => {
+  it("starts on operations and keeps its context query isolated", () => {
     expect(useDevStore.getState().activeTab).toBe("operations");
-    expect(queryKeys.dev.maintenance()).toEqual(["dev", "maintenance"]);
+    expect(queryKeys.dev.context()).toEqual(["dev", "context"]);
 
     useDevStore.getState().setActiveTab("jobs");
     expect(useDevStore.getState().activeTab).toBe("jobs");

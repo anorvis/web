@@ -1,7 +1,7 @@
 import {
-  type MaintenanceOverview,
-  normalizeMaintenanceOverview,
-} from "@/features/dev/utils/maintenance";
+  type ContextOverview,
+  normalizeContextOverview,
+} from "@/features/dev/utils/context";
 import { requestJson } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
 
@@ -17,9 +17,9 @@ export function fetchDevOsEvents(): Promise<unknown[]> {
   return runEffect(requestJson<unknown[]>("/api/dev/os-events"));
 }
 
-export async function fetchDevMaintenance(): Promise<MaintenanceOverview> {
+export async function fetchDevContext(): Promise<ContextOverview> {
   const value = await runEffect(
-    requestJson<unknown>("/api/dev/maintenance", { cache: "no-store" }),
+    requestJson<unknown>("/api/dev/context", { cache: "no-store" }),
   );
-  return normalizeMaintenanceOverview(value);
+  return normalizeContextOverview(value);
 }

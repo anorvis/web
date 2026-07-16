@@ -7,7 +7,7 @@ import { cn } from "@anorvis/ui/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { useMemo, useRef, useState } from "react";
-import { MaintenancePanel } from "@/features/dev/components/maintenance-panel";
+import { ContextPanel } from "@/features/dev/components/context-panel";
 import { MemoryPanel } from "@/features/dev/components/memory-panel";
 import {
   Metric,
@@ -394,7 +394,7 @@ export function DevPlatformDashboard() {
       const requestedTab = activeTabRef.current;
       if (requestedTab === "operations") {
         await queryClient.invalidateQueries({
-          queryKey: queryKeys.dev.maintenance(),
+          queryKey: queryKeys.dev.context(),
         });
       } else if (requestedTab === "memory") {
         await Promise.all([
@@ -638,7 +638,7 @@ export function DevPlatformDashboard() {
       )}
 
       {activeTab === "operations" ? (
-        <MaintenancePanel />
+        <ContextPanel />
       ) : activeTab === "jobs" ? (
         <div
           className={cn(
