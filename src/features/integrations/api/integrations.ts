@@ -111,18 +111,24 @@ export function saveIntegrationToken(input: {
   });
 }
 
+// The exact value users must register as an authorized redirect URI in their
+// OAuth app; Google matches it verbatim (localhost vs 127.0.0.1 differ).
+export function oauthRedirectUri(provider: "google" | "pinterest"): string {
+  const site =
+    process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
+  return `${site}/oauth/${provider}/callback`;
+}
+
 export function startGoogleOAuth(input: {
   clientId?: string;
   clientSecret?: string;
   returnTo?: string;
 }): Promise<{ authorizationUrl: string }> {
   const origin = window.location.origin;
-  const site =
-    process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
   return convexClient.action(convexApi.google.start, {
     clientId: input.clientId,
     clientSecret: input.clientSecret,
-    redirectUri: `${site}/oauth/google/callback`,
+    redirectUri: oauthRedirectUri("google"),
     returnTo: input.returnTo ?? `${origin}/`,
   }) as Promise<{ authorizationUrl: string }>;
 }
@@ -133,12 +139,10 @@ export function startPinterestOAuth(input: {
   returnTo?: string;
 }): Promise<{ authorizationUrl: string }> {
   const origin = window.location.origin;
-  const site =
-    process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "http://127.0.0.1:3211";
   return convexClient.action(convexApi.pinterest.start, {
     clientId: input.clientId,
     clientSecret: input.clientSecret,
-    redirectUri: `${site}/oauth/pinterest/callback`,
+    redirectUri: oauthRedirectUri("pinterest"),
     returnTo: input.returnTo ?? `${origin}/`,
   }) as Promise<{ authorizationUrl: string }>;
 }
