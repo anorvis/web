@@ -24,8 +24,8 @@ export const getStatusTone = (status: string) => {
   return statusTones[normalized] ?? statusTones.unknown;
 };
 
-export const formatRelativeTime = (timestamp: string | null) => {
-  if (!timestamp) return "—";
+export const formatRelativeTime = (timestamp: number | string | null) => {
+  if (timestamp === null || timestamp === "") return "—";
 
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return "—";

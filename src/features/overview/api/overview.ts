@@ -6,9 +6,25 @@ import type {
   OverviewData,
 } from "@/features/overview/types/overview";
 import { convexClient } from "@/lib/convex-client";
-import { convexApi } from "@/lib/convex-functions";
+import {
+  convexApi,
+  type IntegrationPublication,
+  type IntegrationSync,
+} from "@/lib/convex-functions";
 
-const catalog: Omit<IntegrationCatalogEntry, "status">[] = [
+const EMPTY_SYNC: IntegrationSync = {
+  sequence: null,
+  lastSyncedAt: null,
+  lastChangedAt: null,
+  lastAttemptAt: null,
+  lastError: null,
+  lastErrorAt: null,
+};
+
+const catalog: Omit<
+  IntegrationCatalogEntry,
+  "status" | "hasCredentials" | "sync"
+>[] = [
   {
     id: "google",
     displayName: "Google Workspace",
@@ -44,7 +60,7 @@ export async function fetchOverview(): Promise<OverviewData> {
     fetchHealthDashboard(),
     fetchFinanceDashboard("CAD"),
     convexClient.query(convexApi.integrations.list, {}) as Promise<
-      Array<{ provider: string; status: IntegrationCatalogEntry["status"] }>
+      IntegrationPublication[]
     >,
   ]);
   const now = Date.now();
@@ -100,14 +116,35 @@ export async function fetchOverview(): Promise<OverviewData> {
         : null,
       dayChangePercent: null,
     },
-    integrations: catalog.map((entry) => ({
-      ...entry,
-      status:
-        connections.find((connection) => connection.provider === entry.id)
-          ?.status ?? "available",
-    })),
+    integrations: mapIntegrations(connections),
     agentStatus: "offline",
     agentCount: 0,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
+}
+
+export function mapIntegrations(
+  connections: IntegrationPublication[],
+): IntegrationCatalogEntry[] {
+  return catalog.map((entry) => {
+    const connection = connections.find((item) => item.provider === entry.id);
+    return {
+      ...entry,
+      status:
+        (connection?.status as IntegrationCatalogEntry["status"] | undefined) ??
+        "available",
+      hasCredentials: connection?.hasCredentials ?? false,
+      sync: connection?.sync ?? EMPTY_SYNC,
+    };
+  });
+}
+
+// Canonical fetch for queryKeys.integrations(): every subscriber stores the
+// raw provider rows under this key and derives its own view (the catalog
+// maps them with `select: mapIntegrations`). Two fetchers with different
+// shapes on one key poison the cache.
+export function fetchIntegrationsList(): Promise<IntegrationPublication[]> {
+  return convexClient.query(convexApi.integrations.list, {}) as Promise<
+    IntegrationPublication[]
+  >;
 }

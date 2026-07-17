@@ -2,6 +2,7 @@
 
 import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchRecipes } from "@/features/health/api/recipes";
 import {
@@ -29,7 +30,6 @@ import type {
   NativeRecipe,
   NativeRecipeInput,
 } from "@/features/health/types/native-health";
-import { usePersistedQuery } from "@/hooks/use-persisted-query";
 import { queryKeys } from "@/lib/query/keys";
 
 type RecipeTab = "favourites" | "search" | "create" | "import";
@@ -113,13 +113,13 @@ export function RecipesModal({
   const [tab, setTab] = useState<RecipeTab>("favourites");
   const [view, setView] = useState<RecipeView>("tabs");
   const [searchText, setSearchText] = useState("");
-  const recipesQuery = usePersistedQuery({
+  const recipesQuery = useQuery({
     queryKey: queryKeys.health.recipes(),
     queryFn: fetchRecipes,
   });
   const search = useRecipeSearch(searchText);
   const mutations = useRecipeMutations();
-  const recipes = recipesQuery.hydratedData?.recipes ?? [];
+  const recipes = recipesQuery.data?.recipes ?? [];
   const favourites = recipes.filter((recipe) => recipe.isFavorite);
   const others = recipes.filter((recipe) => !recipe.isFavorite);
   const pendingFavoriteId = mutations.favorite.isPending
@@ -228,7 +228,7 @@ export function RecipesModal({
             {...healthTabPanelProps(PANEL_LABEL, tab)}
           >
             {tab === "favourites" ? (
-              recipesQuery.hydrationLoading ? (
+              recipesQuery.isLoading ? (
                 <Skeleton className="h-24 rounded-none" />
               ) : recipesQuery.isError ? (
                 <EmptyState

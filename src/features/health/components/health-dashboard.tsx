@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { WorkspaceMetricButton } from "@/components/layout/workspace";
 import {
@@ -48,10 +48,11 @@ import {
 import { hevyRoutineSummaries } from "@/features/health/lib/summaries";
 import type { NativeMacroProfile } from "@/features/health/types/native-health";
 import type { FoodSearchResult } from "@/features/health/utils/forms";
-import { usePersistedQuery } from "@/hooks/use-persisted-query";
+import { fetchIntegrationsList } from "@/features/overview/api/overview";
 import { healthFromDashboard } from "@/lib/life-intelligence/adapters";
 import { formatDateTime } from "@/lib/life-intelligence/derive";
 import { queryKeys } from "@/lib/query/keys";
+import { formatRelativeTime } from "@/lib/workspace/view-utils";
 
 const stableCardClass = "flex h-[28rem] min-h-0 flex-col overflow-hidden";
 
@@ -67,28 +68,32 @@ export function HealthDashboard() {
   const [routineIndex, setRoutineIndex] = useState(0);
   const [exerciseHistoryIndex, setExerciseHistoryIndex] = useState(0);
   const [workoutView, setWorkoutView] = useState<WorkoutView>("list");
-  const dashboardQuery = usePersistedQuery({
+  const dashboardQuery = useQuery({
     queryKey: queryKeys.health.dashboard(),
     queryFn: fetchHealthDashboard,
   });
-  const recipesQuery = usePersistedQuery({
+  const recipesQuery = useQuery({
     queryKey: queryKeys.health.recipes(),
     queryFn: fetchRecipes,
   });
-  const sourceQuery = usePersistedQuery({
+  const sourceQuery = useQuery({
     queryKey: ["health", "sources"],
     queryFn: fetchHevySettings,
   });
-  const routineQuery = usePersistedQuery({
+  const integrationsQuery = useQuery({
+    queryKey: queryKeys.integrations(),
+    queryFn: fetchIntegrationsList,
+  });
+  const routineQuery = useQuery({
     queryKey: ["health", "hevy-routines"],
     queryFn: fetchHevyRoutines,
   });
-  const routineTemplateQuery = usePersistedQuery({
+  const routineTemplateQuery = useQuery({
     queryKey: ["health", "hevy-exercise-templates"],
     queryFn: fetchHevyExerciseTemplates,
     enabled:
-      Boolean(sourceQuery.hydratedData?.connected) ||
-      Boolean(sourceQuery.hydratedData?.hasApiKey),
+      Boolean(sourceQuery.data?.connected) ||
+      Boolean(sourceQuery.data?.hasApiKey),
   });
   const routineMutation = useMutation({
     mutationFn: saveHevyRoutine,
@@ -115,12 +120,11 @@ export function HealthDashboard() {
     onError: () => setMealStatus("meal save failed"),
   });
 
-  const health = healthFromDashboard(dashboardQuery.hydratedData);
-  const macroProfile = (dashboardQuery.hydratedData?.macroProfile ??
+  const health = healthFromDashboard(dashboardQuery.data);
+  const macroProfile = (dashboardQuery.data?.macroProfile ??
     null) as NativeMacroProfile | null;
-  const recipes = recipesQuery.hydratedData?.recipes ?? [];
-  const measurementHistory =
-    dashboardQuery.hydratedData?.measurementHistory ?? [];
+  const recipes = recipesQuery.data?.recipes ?? [];
+  const measurementHistory = dashboardQuery.data?.measurementHistory ?? [];
   const latestWeight = latestMeasurementValue(measurementHistory, "weightKg");
   const bmiProfile =
     macroProfile && latestWeight !== null
@@ -133,13 +137,13 @@ export function HealthDashboard() {
   const measurementCount = measurementHistory.length;
   const selectedWorkout = selectPagedItem(health.workouts, workoutIndex);
   const routines = useMemo(
-    () => hevyRoutineSummaries(routineQuery.hydratedData?.routines ?? []),
-    [routineQuery.hydratedData],
+    () => hevyRoutineSummaries(routineQuery.data?.routines ?? []),
+    [routineQuery.data],
   );
   const selectedRoutine = selectPagedItem(routines, routineIndex);
   const selectedHevyRoutine =
     selectedRoutine?.source === "hevy"
-      ? (routineQuery.hydratedData?.routines.find(
+      ? (routineQuery.data?.routines.find(
           (routine) => routine.id === selectedRoutine.id,
         ) ?? null)
       : null;
@@ -151,10 +155,12 @@ export function HealthDashboard() {
   const selectedExerciseHistoryPageCount = Math.ceil(
     selectedExerciseHistoryRows.length / EXERCISE_HISTORY_PAGE_SIZE,
   );
+  const hevyIntegration = integrationsQuery.data?.find(
+    (integration) => integration.provider === "hevy",
+  );
   const connectedSources = [
     "local health",
-    ...(sourceQuery.hydratedData?.connected ||
-    sourceQuery.hydratedData?.hasApiKey
+    ...(sourceQuery.data?.connected || sourceQuery.data?.hasApiKey
       ? ["hevy"]
       : []),
   ];
@@ -237,7 +243,7 @@ export function HealthDashboard() {
       <section className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <Section label="training" title="routines">
           <div className={stableCardClass}>
-            {routineQuery.hydrationLoading ? (
+            {routineQuery.isLoading ? (
               <Skeleton className="h-full rounded-none" />
             ) : routineQuery.isError ? (
               <EmptyState
@@ -258,9 +264,7 @@ export function HealthDashboard() {
                 key={selectedRoutine.id}
                 routine={selectedRoutine}
                 editableRoutine={selectedHevyRoutine}
-                templates={
-                  routineTemplateQuery.hydratedData?.exerciseTemplates ?? []
-                }
+                templates={routineTemplateQuery.data?.exerciseTemplates ?? []}
                 saving={routineMutation.isPending}
                 saveError={
                   routineMutation.isError ? "routine save failed" : null
@@ -303,8 +307,8 @@ export function HealthDashboard() {
         <Section label="trends" title="health graph">
           <div className={stableCardClass}>
             <HealthTrendsCard
-              dashboard={dashboardQuery.hydratedData}
-              loading={dashboardQuery.hydrationLoading}
+              dashboard={dashboardQuery.data}
+              loading={dashboardQuery.isLoading}
               isError={dashboardQuery.isError}
               onRetry={() => void dashboardQuery.refetch()}
             />
@@ -331,7 +335,9 @@ export function HealthDashboard() {
               className="inline-flex items-center gap-1 border border-border px-2 py-1 text-[0.58rem] uppercase tracking-[0.16em] text-foreground"
             >
               <span className="text-emerald-500">●</span>
-              {source} connected
+              {source === "hevy" && hevyIntegration
+                ? `${source} connected · synced ${formatRelativeTime(hevyIntegration.sync.lastSyncedAt)}`
+                : `${source} connected`}
             </span>
           ))}
         </div>
@@ -471,7 +477,7 @@ export function HealthDashboard() {
             setActiveModal(null);
           }
         }}
-        dashboard={dashboardQuery.hydratedData}
+        dashboard={dashboardQuery.data}
       />
 
       <RecipesModal

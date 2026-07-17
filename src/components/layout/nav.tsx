@@ -8,7 +8,6 @@ import {
 } from "@anorvis/ui/dropdown-menu";
 import { workspacePageStyles, workspaceStyles } from "@anorvis/ui/styles";
 import { cn } from "@anorvis/ui/utils";
-import { useQueryClient } from "@tanstack/react-query";
 import { Coins, Globe2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -17,7 +16,6 @@ import { ModeToggle } from "@/components/utils/dark-mode-toggle";
 import { useHealthStore } from "@/features/health/stores/health-store";
 import { useMountEffect } from "@/hooks/use-mount-effect";
 import { useWorkspaceOwner } from "@/hooks/use-workspace-owner";
-import { prefetchRouteData } from "@/lib/query/preloads";
 import {
   preferredCurrencies,
   useFinancePreferences,
@@ -34,7 +32,6 @@ const isActiveLink = (pathname: string, href: string) => {
 export function WorkspaceNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { isOwner } = useWorkspaceOwner();
   const { unitSystem, hydrateUnitSystem, setUnitSystem } = useHealthStore();
   const { preferredCurrency, hydratePreferredCurrency, setPreferredCurrency } =
@@ -49,7 +46,6 @@ export function WorkspaceNav() {
 
   const prefetch = (href: string) => {
     router.prefetch(href);
-    prefetchRouteData(queryClient, href);
   };
 
   return (

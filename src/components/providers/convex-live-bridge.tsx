@@ -45,11 +45,25 @@ function isProvider(value: string): value is Provider {
   return value in PROVIDERS;
 }
 
+function sequenceNumber(value: unknown): number | null {
+  const sequence =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : null;
+  return typeof sequence === "number" &&
+    Number.isSafeInteger(sequence) &&
+    sequence >= 0
+    ? sequence
+    : null;
+}
+
 function sequenceByProvider(connections: IntegrationPublication[]) {
   const sequences = new Map<string, number>();
   for (const connection of connections) {
-    const { sequence } = connection.sync;
-    if (!Number.isSafeInteger(sequence) || sequence < 0) continue;
+    const sequence = sequenceNumber(connection.sync.sequence);
+    if (sequence === null) continue;
     const current = sequences.get(connection.provider);
     if (current === undefined || sequence > current) {
       sequences.set(connection.provider, sequence);
@@ -115,7 +129,6 @@ function invalidationPlan(providers: Set<Provider>) {
   }
   if (providers.size > 0) {
     add(queryKeys.overview());
-    add(queryKeys.integrations());
   }
 
   return { clearLife, clearCalendar, keys };
@@ -138,20 +151,30 @@ export function subscribeConvexLiveUpdates(
   cache: LiveCache,
 ): () => void {
   let baseline: Map<string, number> | null = null;
+  let baselineSnapshot: string | null = null;
   try {
     const watch = client.watchQuery(convexApi.integrations.list, {});
     const publish = () => {
       try {
         const connections = watch.localQueryResult();
         if (connections === undefined) return;
+        const snapshot = JSON.stringify(connections);
         const current = sequenceByProvider(connections);
         if (baseline === null) {
           baseline = current;
+          baselineSnapshot = snapshot;
           return;
         }
         const changed = changedProviders(baseline, current);
+        const payloadChanged = snapshot !== baselineSnapshot;
         baseline = current;
+        baselineSnapshot = snapshot;
         invalidate(changed, cache);
+        if (payloadChanged) {
+          void cache.queryClient
+            .invalidateQueries({ queryKey: queryKeys.integrations() })
+            .catch((cause) => cache.onError(asError(cause)));
+        }
       } catch (cause) {
         cache.onError(asError(cause));
       }
@@ -172,15 +195,18 @@ function reportLiveError(error: Error) {
 export function ConvexLiveBridge() {
   const queryClient = useQueryClient();
 
-  useMountEffect(() =>
-    subscribeConvexLiveUpdates(convexClient, {
+  useMountEffect(() => {
+    void convexClient
+      .mutation(convexApi.integrations.syncStale, {})
+      .catch((cause) => reportLiveError(asError(cause)));
+    return subscribeConvexLiveUpdates(convexClient, {
       queryClient,
       clearLife: clearLifeReadCache,
       clearCalendar: () =>
         window.dispatchEvent(new Event("anorvis:calendar-cache-invalidated")),
       onError: reportLiveError,
-    }),
-  );
+    });
+  });
 
   return null;
 }

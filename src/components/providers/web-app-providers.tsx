@@ -6,21 +6,11 @@ import { type ReactNode, useState } from "react";
 import { ConvexLiveBridge } from "@/components/providers/convex-live-bridge";
 import { ConvexSession } from "@/components/providers/convex-session";
 import { ThemeProvider } from "@/components/utils/theme-provider";
-import { useMountEffect } from "@/hooks/use-mount-effect";
 import { convexClient } from "@/lib/convex-client";
 import { createQueryClient } from "@/lib/query/client";
-import {
-  restorePersistedQueryCache,
-  subscribePersistedQueryCache,
-} from "@/lib/query/persistence";
 
 export function WebAppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createQueryClient());
-
-  useMountEffect(() => {
-    restorePersistedQueryCache(queryClient);
-    return subscribePersistedQueryCache(queryClient);
-  });
 
   return (
     <ConvexAuthProvider client={convexClient}>

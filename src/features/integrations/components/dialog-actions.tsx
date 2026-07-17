@@ -54,6 +54,9 @@ export function IntegrationDialogActions({
           clientSecret={googleClientSecret}
           canStartOAuth={googleCanStartOAuth}
           connected={integration.status === "connected"}
+          reconnect={
+            integration.status === "error" && integration.id === "google"
+          }
           providerName="google"
           onSave={onSaveGoogle}
         />
@@ -63,6 +66,7 @@ export function IntegrationDialogActions({
           clientId={pinterestClientId}
           clientSecret={pinterestClientSecret}
           canStartOAuth={false}
+          reconnect={false}
           connected={integration.status === "connected"}
           providerName="pinterest"
           onSave={onSavePinterest}
@@ -94,12 +98,14 @@ function OAuthActions({
   clientSecret,
   canStartOAuth,
   connected,
+  reconnect,
   onSave,
   providerName,
 }: {
   saving: boolean;
   clientId: string;
   clientSecret: string;
+  reconnect: boolean;
   canStartOAuth: boolean;
   connected: boolean;
   providerName: string;
@@ -115,11 +121,13 @@ function OAuthActions({
       disabled={saving || (hasAnyKey ? !keysTyped : !canStartOAuth)}
       onClick={onSave}
     >
-      {keysTyped
-        ? connected
-          ? "save oauth client"
-          : `connect ${providerName}`
-        : `sign in with ${providerName}`}
+      {reconnect
+        ? `Reconnect ${providerName}`
+        : keysTyped
+          ? connected
+            ? "save oauth client"
+            : `connect ${providerName}`
+          : `sign in with ${providerName}`}
     </ActionButton>
   );
 }

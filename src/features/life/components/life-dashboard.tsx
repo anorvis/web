@@ -43,7 +43,6 @@ import {
 } from "@/features/life/lib/calendar-query";
 import { useLifeStore } from "@/features/life/stores/life-store";
 import { useMountEffect } from "@/hooks/use-mount-effect";
-import { usePersistedQuery } from "@/hooks/use-persisted-query";
 import { lifeFromSources } from "@/lib/life-intelligence/adapters";
 import {
   getBlockStart,
@@ -110,7 +109,7 @@ export function LifeDashboard() {
     () => rangeFor(effectiveDate, calendarMode),
     [effectiveDate, calendarMode],
   );
-  const snapshotQuery = usePersistedQuery({
+  const snapshotQuery = useQuery({
     queryKey: queryKeys.life.snapshot(),
     queryFn: fetchLifeSnapshot,
   });
@@ -124,7 +123,7 @@ export function LifeDashboard() {
 
   const calendarEventsForLife = useMemo(() => {
     const queuedTaskIds = new Set(
-      snapshotQuery.hydratedData?.queue.map((task) => task.id) ?? [],
+      snapshotQuery.data?.queue.map((task) => task.id) ?? [],
     );
     return (calendarQuery.data ?? []).filter(
       (event) =>
@@ -132,7 +131,7 @@ export function LifeDashboard() {
         !event.taskId ||
         !queuedTaskIds.has(event.taskId),
     );
-  }, [calendarQuery.data, snapshotQuery.hydratedData]);
+  }, [calendarQuery.data, snapshotQuery.data]);
   const sourcePlannedSessionKeys = useMemo(
     () => plannedSessionKeys(calendarEventsForLife),
     [calendarEventsForLife],
@@ -140,10 +139,10 @@ export function LifeDashboard() {
   const sourceLife = useMemo(
     () =>
       lifeFromSources({
-        snapshot: snapshotQuery.hydratedData,
+        snapshot: snapshotQuery.data,
         calendarEvents: calendarEventsForLife,
       }),
-    [calendarEventsForLife, snapshotQuery.hydratedData],
+    [calendarEventsForLife, snapshotQuery.data],
   );
   const {
     tags,
@@ -275,11 +274,11 @@ export function LifeDashboard() {
       .replace(/^-|-$/g, "");
   const tagNameForId = (id: string) =>
     life.tags.find((tag) => tag.id === id)?.name ?? id;
-  const snapshotError = snapshotQuery.isError && !snapshotQuery.hydratedData;
+  const snapshotError = snapshotQuery.isError && !snapshotQuery.data;
   const calendarError = calendarQuery.isError;
-  const snapshotLoading = snapshotQuery.hydrationLoading;
+  const snapshotLoading = snapshotQuery.isLoading;
   const hasGoogleCalendarSource =
-    snapshotQuery.hydratedData?.googleCalendarStatus === "connected" ||
+    snapshotQuery.data?.googleCalendarStatus === "connected" ||
     calendarQuery.data?.some((event) => event.source === "google-calendar");
   const connectedSources = [
     "local calendar",
@@ -471,7 +470,7 @@ export function LifeDashboard() {
                 hasCalendar
                 today={todayRef.current}
                 events={calendarEvents}
-                tasks={snapshotQuery.hydratedData?.queue ?? []}
+                tasks={snapshotQuery.data?.queue ?? []}
                 tagOptions={life.tags.map((tag) => tag.name)}
               />
             )}
@@ -522,7 +521,7 @@ export function LifeDashboard() {
         calendarMode={calendarMode}
         todos={todos}
         periodTodosCount={periodTodos.length}
-        queue={snapshotQuery.hydratedData?.queue ?? []}
+        queue={snapshotQuery.data?.queue ?? []}
         view={todoView}
         onViewChange={setTodoView}
         onComplete={(id) => void completeTodoMutation.mutateAsync(id)}

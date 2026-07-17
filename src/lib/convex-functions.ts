@@ -7,13 +7,21 @@ const mutation = (name: string) =>
 const action = (name: string) =>
   makeFunctionReference<"action", Record<string, unknown>, never>(name);
 
+export type IntegrationSyncValue = number | string | null;
+export type IntegrationSync = {
+  sequence: IntegrationSyncValue;
+  lastSyncedAt: IntegrationSyncValue;
+  lastChangedAt: IntegrationSyncValue;
+  lastAttemptAt: IntegrationSyncValue;
+  lastError: IntegrationSyncValue;
+  lastErrorAt: IntegrationSyncValue;
+};
+
 export type IntegrationPublication = {
   provider: string;
   status: string;
-  sync: {
-    sequence: number;
-    lastSyncedAt: number | null;
-  };
+  hasCredentials: boolean;
+  sync: IntegrationSync;
 };
 
 export const convexApi = {
@@ -75,17 +83,18 @@ export const convexApi = {
     unlinkAccount: mutation("capability/finance:unlinkAccount"),
     listTransactions: query("capability/finance:listTransactions"),
   },
-  financeDashboard: {
-    dashboard: action("product/web/finance:dashboard"),
-  },
   financeImport: {
     importCsv: action("capability/finance/import:importCsv"),
     undoImport: mutation("capability/finance/import:undoImport"),
+  },
+  financeDashboard: {
+    dashboard: action("product/web/finance:dashboard"),
   },
   integrations: {
     list: query<IntegrationPublication[]>("capability/integration:list"),
     disconnect: mutation("capability/integration:disconnect"),
     startSync: mutation("capability/integration:startSync"),
+    syncStale: mutation("capability/integration:syncStale"),
     syncJobStatus: query("capability/integration:syncJobStatus"),
   },
   google: {
