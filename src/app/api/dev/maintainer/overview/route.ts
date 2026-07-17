@@ -31,13 +31,24 @@ type SanitizedTicket = {
   project: string;
   createdAt: string | null;
   updatedAt: string | null;
+  answer: string | null;
   pullRequest: string | null;
+  verification: string[];
+  warnings: string[];
+  linearIdentifier: string | null;
+  linearUrl: string | null;
 };
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function textList(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [])
+    .map(text)
+    .filter((entry): entry is string => entry !== null);
 }
 
 function boundedInt(
@@ -57,6 +68,8 @@ function sanitizeTicket(value: unknown): SanitizedTicket | null {
   const id = text(value.id);
   const status = text(value.status);
   if (!id || !status) return null;
+  const linear = isRecord(value.linear) ? value.linear : {};
+  const linearUrl = text(linear.url);
   return {
     id,
     status,
@@ -64,7 +77,12 @@ function sanitizeTicket(value: unknown): SanitizedTicket | null {
     project: text(value.project) ?? "unknown",
     createdAt: text(value.createdAt),
     updatedAt: text(value.updatedAt),
+    answer: text(value.answer),
     pullRequest: text(value.pullRequest),
+    verification: textList(value.verification),
+    warnings: textList(value.warnings),
+    linearIdentifier: text(linear.identifier),
+    linearUrl: linearUrl?.startsWith("https://linear.app/") ? linearUrl : null,
   };
 }
 

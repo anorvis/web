@@ -40,7 +40,12 @@ export type MaintainerTicket = {
   project: string;
   createdAt: string | null;
   updatedAt: string | null;
+  answer: string | null;
   pullRequest: string | null;
+  verification: string[];
+  warnings: string[];
+  linearIdentifier: string | null;
+  linearUrl: string | null;
 };
 
 export type MaintainerTicketPage = {
@@ -65,20 +70,20 @@ export type VaultLoginResult = {
 
 export const PREFLIGHT_PASS_VERDICT = "push access";
 
-export const TICKET_GROUPS = [
+export const TICKET_FILTERS = [
   {
-    key: "pending",
-    label: "pending approval",
+    key: "inbox",
+    label: "inbox",
     statuses: ["pending_approval"],
   },
   {
-    key: "running",
-    label: "running",
+    key: "active",
+    label: "active",
     statuses: ["approved", "running"],
   },
   {
-    key: "review",
-    label: "review",
+    key: "done",
+    label: "done",
     statuses: [
       "rejected",
       "existing_pull_request",
@@ -91,7 +96,7 @@ export const TICKET_GROUPS = [
   },
 ] as const;
 
-export type TicketGroupKey = (typeof TICKET_GROUPS)[number]["key"];
+export type TicketFilterKey = (typeof TICKET_FILTERS)[number]["key"];
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
@@ -242,6 +247,17 @@ export async function submitCredentials(
   return { input: { githubToken: "" }, error: null, saved: true };
 }
 
+function textList(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [])
+    .map(text)
+    .filter((entry): entry is string => entry !== null);
+}
+
+function linearUrl(value: unknown): string | null {
+  const url = text(value);
+  return url?.startsWith("https://linear.app/") ? url : null;
+}
+
 function ticket(value: unknown): MaintainerTicket | null {
   if (!isRecord(value)) return null;
   const id = text(value.id);
@@ -254,7 +270,12 @@ function ticket(value: unknown): MaintainerTicket | null {
     project: text(value.project) ?? "unknown",
     createdAt: text(value.createdAt),
     updatedAt: text(value.updatedAt),
+    answer: text(value.answer),
     pullRequest: text(value.pullRequest),
+    verification: textList(value.verification),
+    warnings: textList(value.warnings),
+    linearIdentifier: text(value.linearIdentifier),
+    linearUrl: linearUrl(value.linearUrl),
   };
 }
 
@@ -383,4 +404,63 @@ export function normalizeSmoke(value: unknown): SmokeResult {
 export function normalizeVaultLogin(value: unknown): VaultLoginResult {
   const root = isRecord(value) ? value : {};
   return { ok: root.ok === true, error: text(root.error) };
+}
+
+export type LinearStatus = {
+  connected: boolean;
+  auth: "oauth" | "api_key" | null;
+  teamId: string | null;
+  teamName: string | null;
+  hasClientCredentials: boolean;
+};
+
+export type LinearTeam = {
+  id: string;
+  name: string;
+  key: string;
+};
+
+export type LinearSyncResult = {
+  ok: boolean;
+  pushed: number;
+  updated: number;
+  error: string | null;
+};
+
+export function normalizeLinearStatus(value: unknown): LinearStatus {
+  const root = isRecord(value) ? value : {};
+  return {
+    connected: root.connected === true,
+    auth: root.auth === "oauth" || root.auth === "api_key" ? root.auth : null,
+    teamId: text(root.teamId),
+    teamName: text(root.teamName),
+    hasClientCredentials: root.hasClientCredentials === true,
+  };
+}
+
+export function normalizeLinearTeams(value: unknown): LinearTeam[] {
+  const root = isRecord(value) ? value : {};
+  return (Array.isArray(root.teams) ? root.teams : []).flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const id = text(entry.id);
+    const name = text(entry.name);
+    if (!id || !name) return [];
+    return [{ id, name, key: text(entry.key) ?? "" }];
+  });
+}
+
+export function normalizeLinearSync(value: unknown): LinearSyncResult {
+  const root = isRecord(value) ? value : {};
+  return {
+    ok: root.ok === true,
+    pushed:
+      typeof root.pushed === "number" && Number.isFinite(root.pushed)
+        ? Math.max(0, Math.trunc(root.pushed))
+        : 0,
+    updated:
+      typeof root.updated === "number" && Number.isFinite(root.updated)
+        ? Math.max(0, Math.trunc(root.updated))
+        : 0,
+    error: text(root.error),
+  };
 }

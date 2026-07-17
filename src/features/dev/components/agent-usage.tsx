@@ -183,6 +183,7 @@ export function AgentUsageView({
   loading,
   error,
   onPage,
+  maintainerVisible = false,
 }: {
   scope: UsageScope;
   data: AgentUsagePage | null;
@@ -190,6 +191,7 @@ export function AgentUsageView({
   loading: boolean;
   error: string | null;
   onPage: (page: number) => void;
+  maintainerVisible?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -198,6 +200,7 @@ export function AgentUsageView({
         analytics={data?.analytics ?? null}
         loading={loading}
         error={error}
+        maintainerVisible={maintainerVisible}
       />
       <SessionsCardView
         scope={scope}
@@ -214,17 +217,22 @@ export function AgentUsageView({
 
 export function AgentUsagePanel({
   initialScope = "foreground",
+  maintainerScopeVisible = false,
 }: {
   initialScope?: UsageScope;
+  maintainerScopeVisible?: boolean;
 }) {
   const [scope, setScope] = useState<UsageScope>(initialScope);
   const [page, setPage] = useState(0);
+  // Fail closed: installs without the maintainer never see its usage scope,
+  // even if a stale selection points at it.
+  const activeScope = maintainerScopeVisible ? scope : "foreground";
   const query = useQuery({
-    queryKey: queryKeys.dev.agentUsage(scope, page),
-    queryFn: () => fetchAgentUsagePage(scope, page, DEV_PAGE_SIZE),
+    queryKey: queryKeys.dev.agentUsage(activeScope, page),
+    queryFn: () => fetchAgentUsagePage(activeScope, page, DEV_PAGE_SIZE),
     refetchInterval: 30_000,
     placeholderData: (previous) =>
-      previous?.scope === scope ? previous : undefined,
+      previous?.scope === activeScope ? previous : undefined,
   });
   const selectScope = (nextScope: UsageScope) => {
     setScope(nextScope);
@@ -233,30 +241,33 @@ export function AgentUsagePanel({
   const error = query.error instanceof Error ? query.error.message : null;
   return (
     <section className="space-y-4" aria-label="agent usage by scope">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-        <p className={workspacePageStyles.cardLabel}>usage scope</p>
-        <fieldset className="flex items-center gap-2">
-          <legend className="sr-only">usage scope selector</legend>
-          {USAGE_SCOPE_OPTIONS.map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              variant="outline"
-              size="sm"
-              className={cn(
-                workspacePageStyles.actionButton,
-                scope === value && "border-foreground text-foreground",
-              )}
-              aria-pressed={scope === value}
-              onClick={() => selectScope(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </fieldset>
-      </div>
+      {maintainerScopeVisible ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+          <p className={workspacePageStyles.cardLabel}>usage scope</p>
+          <fieldset className="flex items-center gap-2">
+            <legend className="sr-only">usage scope selector</legend>
+            {USAGE_SCOPE_OPTIONS.map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(
+                  workspacePageStyles.actionButton,
+                  activeScope === value && "border-foreground text-foreground",
+                )}
+                aria-pressed={activeScope === value}
+                onClick={() => selectScope(value)}
+              >
+                {label}
+              </Button>
+            ))}
+          </fieldset>
+        </div>
+      ) : null}
       <AgentUsageView
-        scope={scope}
+        scope={activeScope}
+        maintainerVisible={maintainerScopeVisible}
         data={query.data ?? null}
         page={page}
         loading={query.isLoading}
