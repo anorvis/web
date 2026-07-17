@@ -1,5 +1,6 @@
 import { Button } from "@anorvis/ui/button";
 import { workspacePageStyles } from "@anorvis/ui/styles";
+import { oauthRedirectUri } from "@/features/integrations/api/integrations";
 import {
   type IntegrationSettingsState,
   useIntegrationSettings,
@@ -33,6 +34,7 @@ export function Settings() {
           canStartOAuth={props.googleCanStartOAuth}
           onClientIdChange={props.setGoogleClientId}
           onClientSecretChange={props.setGoogleClientSecret}
+          redirectUri={oauthRedirectUri("google")}
         />
       );
     case "pinterest":
@@ -48,6 +50,7 @@ export function Settings() {
           canStartOAuth={props.pinterestCanStartOAuth}
           onClientIdChange={props.setPinterestClientId}
           onClientSecretChange={props.setPinterestClientSecret}
+          redirectUri={oauthRedirectUri("pinterest")}
         />
       );
     case "hevy":
@@ -192,6 +195,7 @@ function OAuthSettings({
   canStartOAuth,
   onClientIdChange,
   onClientSecretChange,
+  redirectUri,
 }: {
   label: string;
   description: string;
@@ -203,6 +207,7 @@ function OAuthSettings({
   canStartOAuth: boolean;
   onClientIdChange: (value: string) => void;
   onClientSecretChange: (value: string) => void;
+  redirectUri?: string;
 }) {
   const id = label.toLowerCase();
   return (
@@ -234,6 +239,13 @@ function OAuthSettings({
           />
         </label>
       </div>
+      {redirectUri ? (
+        <p className={`${workspacePageStyles.metricLabel} mt-3`}>
+          authorized redirect URI (register this exact value in your {label}{" "}
+          OAuth app, or sign-in fails with redirect_uri_mismatch):{" "}
+          <span className="select-all break-all">{redirectUri}</span>
+        </p>
+      ) : null}
       {canStartOAuth ? (
         <p className={`${workspacePageStyles.metricLabel} mt-3`}>
           {canAutoRenew

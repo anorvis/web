@@ -475,7 +475,9 @@ export function IntegrationCard({
               sync error: {integration.sync.lastError}
             </p>
           ) : null}
-          {integration.id === "google" && integration.status === "error" ? (
+          {integration.id === "google" &&
+          (integration.status === "error" ||
+            integration.status === "pending") ? (
             <button
               type="button"
               className={workspacePageStyles.actionButton}
