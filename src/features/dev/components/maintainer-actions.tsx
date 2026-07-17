@@ -15,8 +15,6 @@ import {
   updateMaintainerSettings,
 } from "@/features/dev/api/dev";
 import {
-  type CredentialsInput,
-  emptyCredentialsInput,
   type MaintainerStatus,
   PREFLIGHT_PASS_VERDICT,
   type PreflightResult,
@@ -29,6 +27,7 @@ const FIELD_LABEL_CLASS =
   "text-[0.55rem] uppercase tracking-[0.25em] text-muted-foreground";
 const SECRET_INPUT_CLASS = `${workspacePageStyles.formInput} rounded-none`;
 const HELP_TEXT_CLASS = "text-[0.6rem] leading-relaxed text-muted-foreground";
+export const maintainerStatusBadgeClass = `${workspacePageStyles.badgeSmall} inline-flex h-5 items-center px-2 py-0 leading-none`;
 
 function CardHeading({ label, title }: { label: string; title: string }) {
   return (
@@ -49,7 +48,7 @@ function ConfiguredBadge({
   return (
     <Badge
       variant={configured ? "default" : "outline"}
-      className={workspacePageStyles.badgeSmall}
+      className={maintainerStatusBadgeClass}
     >
       {configured ? `${label} configured` : `${label} not configured`}
     </Badge>
@@ -115,25 +114,42 @@ export function ControlsCard({
     <Card className={workspacePageStyles.card}>
       <CardHeading label="// controls" title="maintainer settings" />
       <CardContent className="space-y-4 px-5 py-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant={status.enabled ? "default" : "outline"}
-            className={workspacePageStyles.badgeSmall}
-          >
-            {status.enabled ? "enabled" : "disabled"}
-          </Badge>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={workspacePageStyles.actionButton}
-            disabled={toggleBusy}
-            onClick={() => void toggle()}
-          >
-            {status.enabled ? "disable maintainer" : "enable maintainer"}
-          </Button>
-          {toggleBusy ? <Spinner className="size-3" /> : null}
-        </div>
+        <section
+          className="flex flex-col gap-3 border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+          aria-label="maintainer runtime status"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <Badge
+              variant={status.enabled ? "default" : "outline"}
+              className={maintainerStatusBadgeClass}
+            >
+              {status.enabled ? "enabled" : "disabled"}
+            </Badge>
+            <div className="min-w-0 space-y-1">
+              <h3 className={workspacePageStyles.listLabel}>
+                maintainer runtime
+              </h3>
+              <p className={HELP_TEXT_CLASS}>
+                {status.enabled
+                  ? "Accepting approved owner tickets."
+                  : "Paused until it is enabled by the owner."}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={workspacePageStyles.actionButton}
+              disabled={toggleBusy}
+              onClick={() => void toggle()}
+            >
+              {status.enabled ? "disable maintainer" : "enable maintainer"}
+            </Button>
+            {toggleBusy ? <Spinner className="size-3" /> : null}
+          </div>
+        </section>
         {toggleError ? (
           <p className={workspacePageStyles.errorText}>{toggleError}</p>
         ) : null}
@@ -170,7 +186,7 @@ export function ControlsCard({
             <div className="flex items-center gap-2">
               <Badge
                 variant={preflight.ok ? "default" : "destructive"}
-                className={workspacePageStyles.badgeSmall}
+                className={maintainerStatusBadgeClass}
               >
                 {preflight.ok ? "push access verified" : "push access missing"}
               </Badge>
@@ -187,7 +203,7 @@ export function ControlsCard({
                         ? "default"
                         : "destructive"
                     }
-                    className={workspacePageStyles.badgeSmall}
+                    className={maintainerStatusBadgeClass}
                   >
                     {entry.verdict}
                   </Badge>
@@ -204,7 +220,7 @@ export function ControlsCard({
           <section className="space-y-2" aria-label="sandbox smoke result">
             <Badge
               variant={smoke.ok ? "default" : "destructive"}
-              className={workspacePageStyles.badgeSmall}
+              className={maintainerStatusBadgeClass}
             >
               {smoke.ok ? "smoke passed" : "smoke failed"}
             </Badge>
@@ -222,21 +238,15 @@ export function ControlsCard({
 
 export function ModelAuthCard({
   status,
-  onStatusChanged,
   onVaultLoginStarted,
 }: {
   status: MaintainerStatus;
-  onStatusChanged: () => void;
   onVaultLoginStarted: () => void;
 }) {
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginStarted, setLoginStarted] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [input, setInput] = useState<CredentialsInput>(emptyCredentialsInput());
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const vaultConfigured = status.modelAuth.vault;
   const waitingForVault = loginStarted && !vaultConfigured;
@@ -268,23 +278,6 @@ export function ModelAuthCard({
     window.setTimeout(() => setCopied(false), 2_000);
   };
 
-  const saveApiKey = async () => {
-    setSaveBusy(true);
-    setSaveError(null);
-    setSaveNotice(null);
-    const result = await submitCredentials(
-      { ...input, githubToken: "" },
-      saveMaintainerCredentials,
-    );
-    setSaveBusy(false);
-    setInput({ ...result.input, githubToken: "" });
-    setSaveError(result.error);
-    if (result.saved) {
-      setSaveNotice("API key stored. values are never shown again.");
-      onStatusChanged();
-    }
-  };
-
   return (
     <Card className={workspacePageStyles.card}>
       <CardHeading label="// model auth" title="sandbox sign-in" />
@@ -299,15 +292,14 @@ export function ModelAuthCard({
           ) : null}
         </div>
         <p className={HELP_TEXT_CLASS}>
-          The maintainer signs in with a dedicated sandbox vault, separate from
-          this machine&apos;s agent credentials — nothing is copied from the
-          host. Signing in opens the one-time flow in your terminal.
+          The maintainer uses your subscription through a dedicated sandbox
+          vault, separate from this machine&apos;s agent credentials. Signing in
+          opens a one-time flow in your terminal.
         </p>
         <Button
           type="button"
-          variant="outline"
           size="sm"
-          className={workspacePageStyles.actionButton}
+          className="rounded-none text-[0.6rem] uppercase tracking-[0.3em]"
           disabled={loginBusy}
           onClick={() => void signIn()}
         >
@@ -318,11 +310,16 @@ export function ModelAuthCard({
         ) : null}
 
         {status.vaultSetupCommand ? (
-          <div className="space-y-2">
-            <p className={HELP_TEXT_CLASS}>
-              Fallback: run the dedicated sign-in yourself in any terminal.
-            </p>
-            <div className="flex items-start gap-2">
+          <details className="group border-t border-border pt-3">
+            <summary
+              className={`${FIELD_LABEL_CLASS} cursor-pointer list-none transition hover:text-foreground`}
+            >
+              <span className="group-open:hidden">+ terminal fallback</span>
+              <span className="hidden group-open:inline">
+                - terminal fallback
+              </span>
+            </summary>
+            <div className="mt-2 flex items-start gap-2">
               <pre className="min-w-0 flex-1 overflow-x-auto whitespace-pre border border-border p-3 font-mono text-[0.6rem] text-foreground">
                 {status.vaultSetupCommand}
               </pre>
@@ -336,84 +333,8 @@ export function ModelAuthCard({
                 {copied ? "copied" : "copy"}
               </Button>
             </div>
-          </div>
+          </details>
         ) : null}
-
-        <div className="space-y-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={FIELD_LABEL_CLASS}>alternative: api keys</span>
-            {status.modelAuth.apiKeys.map((name) => (
-              <Badge
-                key={name}
-                variant="default"
-                className={workspacePageStyles.badgeSmall}
-              >
-                {name} configured
-              </Badge>
-            ))}
-          </div>
-          <label
-            htmlFor="maintainer-api-key-name"
-            className={workspacePageStyles.formLabel}
-          >
-            <span className={FIELD_LABEL_CLASS}>key name</span>
-            <Input
-              id="maintainer-api-key-name"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="ANTHROPIC_API_KEY"
-              className={SECRET_INPUT_CLASS}
-              value={input.apiKeyName}
-              onChange={(event) =>
-                setInput((current) => ({
-                  ...current,
-                  apiKeyName: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label
-            htmlFor="maintainer-api-key-value"
-            className={workspacePageStyles.formLabel}
-          >
-            <span className={FIELD_LABEL_CLASS}>key value (write-only)</span>
-            <Input
-              id="maintainer-api-key-value"
-              type="password"
-              autoComplete="off"
-              placeholder="stored on this machine, never displayed"
-              className={SECRET_INPUT_CLASS}
-              value={input.apiKeyValue}
-              onChange={(event) =>
-                setInput((current) => ({
-                  ...current,
-                  apiKeyValue: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={workspacePageStyles.actionButton}
-              disabled={saveBusy}
-              onClick={() => void saveApiKey()}
-            >
-              {saveBusy ? "saving…" : "save api key"}
-            </Button>
-            {saveNotice ? (
-              <span className="text-[0.6rem] text-muted-foreground">
-                {saveNotice}
-              </span>
-            ) : null}
-          </div>
-          {saveError ? (
-            <p className={workspacePageStyles.errorText}>{saveError}</p>
-          ) : null}
-        </div>
       </CardContent>
     </Card>
   );
@@ -436,7 +357,7 @@ export function GithubTokenCard({
     setError(null);
     setNotice(null);
     const result = await submitCredentials(
-      { ...emptyCredentialsInput(), githubToken: token },
+      { githubToken: token },
       saveMaintainerCredentials,
     );
     setBusy(false);

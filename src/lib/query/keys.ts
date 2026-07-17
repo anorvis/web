@@ -36,14 +36,13 @@ export const queryKeys = {
     snaptradeSettings: () => ["finance", "snaptrade", "settings"] as const,
   },
   dev: {
-    context: () => ["dev", "context"] as const,
     maintainerStatus: () => ["dev", "maintainer", "status"] as const,
     maintainerTickets: (group: string, page: number) =>
       ["dev", "maintainer", "tickets", group, page] as const,
     maintainerTicketsRoot: () => ["dev", "maintainer", "tickets"] as const,
-    maintainerSessions: (page: number) =>
-      ["dev", "maintainer", "sessions", page] as const,
-    maintainerSessionsRoot: () => ["dev", "maintainer", "sessions"] as const,
+    agentUsage: (scope: "foreground" | "maintainer", page: number) =>
+      ["dev", "agent-usage", scope, page] as const,
+    agentUsageRoot: () => ["dev", "agent-usage"] as const,
   },
   spotify: {
     nowPlaying: () => ["spotify", "now-playing"] as const,

@@ -7,9 +7,8 @@ afterEach(() => {
 });
 
 describe("dev tab state", () => {
-  it("starts on operations and keeps its context query isolated", () => {
+  it("starts on operations", () => {
     expect(useDevStore.getState().activeTab).toBe("operations");
-    expect(queryKeys.dev.context()).toEqual(["dev", "context"]);
   });
 
   it("switches to the maintainer tab with isolated query keys", () => {

@@ -1,3 +1,8 @@
+import {
+  normalizeUsageAnalytics,
+  type UsageAnalytics,
+  type UsageScope,
+} from "@/features/dev/usage";
 import { errorMessage } from "@/lib/effect/errors";
 import { isRecord } from "@/lib/guards";
 
@@ -59,8 +64,6 @@ export type VaultLoginResult = {
 };
 
 export const PREFLIGHT_PASS_VERDICT = "push access";
-
-export const API_KEY_NAME_PATTERN = /^[A-Z][A-Z0-9_]*_API_KEY$/;
 
 export const TICKET_GROUPS = [
   {
@@ -171,7 +174,7 @@ export function maintainerChecks(status: MaintainerStatus): MaintainerCheck[] {
           : status.modelAuth.vault
             ? "sandbox vault present — run the sandbox smoke to verify the sign-in"
             : null,
-      hint: "sign in the sandbox vault or store a model API key below.",
+      hint: "sign in to the dedicated sandbox vault with your subscription.",
     },
     {
       key: "github-token",
@@ -190,20 +193,9 @@ export function maintainerChecks(status: MaintainerStatus): MaintainerCheck[] {
   ];
 }
 
-export type CredentialsInput = {
-  githubToken: string;
-  apiKeyName: string;
-  apiKeyValue: string;
-};
+export type CredentialsInput = { githubToken: string };
 
-export type CredentialsPayload = {
-  githubToken?: string;
-  apiKeys?: Record<string, string>;
-};
-
-export function emptyCredentialsInput(): CredentialsInput {
-  return { githubToken: "", apiKeyName: "", apiKeyValue: "" };
-}
+export type CredentialsPayload = { githubToken: string };
 
 function validSecret(value: string): boolean {
   return value.length > 0 && value.length <= 512 && !/[\r\n]/.test(value);
@@ -211,53 +203,24 @@ function validSecret(value: string): boolean {
 
 /**
  * Builds the write-only credentials payload. Returns an error instead of a
- * payload when the input is incomplete; empty fields are omitted entirely so
- * saved values are never overwritten with blanks.
+ * payload when the input is empty or malformed. Model auth stays on the
+ * subscription vault sign-in; API keys are a gateway-only power-user path.
  */
 export function buildCredentialsPayload(input: CredentialsInput): {
   payload: CredentialsPayload | null;
   error: string | null;
 } {
   const githubToken = input.githubToken.trim();
-  const apiKeyName = input.apiKeyName.trim();
-  const apiKeyValue = input.apiKeyValue.trim();
-
-  if (!githubToken && !apiKeyName && !apiKeyValue) {
+  if (!githubToken) {
     return { payload: null, error: "enter a credential to save." };
   }
-  const payload: CredentialsPayload = {};
-  if (githubToken) {
-    if (!validSecret(githubToken)) {
-      return {
-        payload: null,
-        error: "github token must be a single line of at most 512 characters.",
-      };
-    }
-    payload.githubToken = githubToken;
+  if (!validSecret(githubToken)) {
+    return {
+      payload: null,
+      error: "github token must be a single line of at most 512 characters.",
+    };
   }
-  if (apiKeyName || apiKeyValue) {
-    if (!apiKeyName || !apiKeyValue) {
-      return {
-        payload: null,
-        error: "provide both an API key name and its value.",
-      };
-    }
-    if (!API_KEY_NAME_PATTERN.test(apiKeyName)) {
-      return {
-        payload: null,
-        error: "API key names must look like PROVIDER_API_KEY.",
-      };
-    }
-    if (!validSecret(apiKeyValue)) {
-      return {
-        payload: null,
-        error:
-          "API key values must be a single line of at most 512 characters.",
-      };
-    }
-    payload.apiKeys = { [apiKeyName]: apiKeyValue };
-  }
-  return { payload, error: null };
+  return { payload: { githubToken }, error: null };
 }
 
 /**
@@ -276,7 +239,7 @@ export async function submitCredentials(
   } catch (cause) {
     return { input, error: errorMessage(cause), saved: false };
   }
-  return { input: emptyCredentialsInput(), error: null, saved: true };
+  return { input: { githubToken: "" }, error: null, saved: true };
 }
 
 function ticket(value: unknown): MaintainerTicket | null {
@@ -309,8 +272,9 @@ export function normalizeTicketPage(value: unknown): MaintainerTicketPage {
   };
 }
 
-export type MaintainerSession = {
+export type AgentUsageSession = {
   sessionKey: string;
+  scope: UsageScope;
   host: string;
   provider: string;
   model: string;
@@ -319,11 +283,17 @@ export type MaintainerSession = {
   usdCost: number;
   lastSeenAt: string | null;
   reviewed: boolean;
+  stage: "generalizer" | "worker" | null;
+  outcome: string | null;
 };
 
-export type MaintainerSessionPage = {
-  sessions: MaintainerSession[];
+export type AgentUsagePage = {
+  sessions: AgentUsageSession[];
+  scope: UsageScope;
+  usagePeriod: "all" | "current_month";
+  usageSince: string | null;
   total: number;
+  analytics: UsageAnalytics;
 };
 
 function usageCount(value: unknown): number {
@@ -332,12 +302,23 @@ function usageCount(value: unknown): number {
     : 0;
 }
 
-function session(value: unknown): MaintainerSession | null {
+function usageScope(value: unknown): UsageScope {
+  return value === "maintainer" ? "maintainer" : "foreground";
+}
+
+function session(
+  value: unknown,
+  defaultScope: UsageScope,
+): AgentUsageSession | null {
   if (!isRecord(value)) return null;
   const sessionKey = text(value.sessionKey);
   if (!sessionKey) return null;
   return {
     sessionKey,
+    scope:
+      value.scope === "foreground" || value.scope === "maintainer"
+        ? value.scope
+        : defaultScope,
     host: text(value.host) ?? "unknown",
     provider: text(value.provider) ?? "unknown",
     model: text(value.model) ?? "unknown",
@@ -346,20 +327,35 @@ function session(value: unknown): MaintainerSession | null {
     usdCost: usageCount(value.usdCost),
     lastSeenAt: text(value.lastSeenAt),
     reviewed: value.reviewed === true,
+    stage:
+      value.stage === "generalizer" || value.stage === "worker"
+        ? value.stage
+        : null,
+    outcome: text(value.outcome),
   };
 }
 
-export function normalizeSessionPage(value: unknown): MaintainerSessionPage {
+export function normalizeSessionPage(value: unknown): AgentUsagePage {
   const root = isRecord(value) ? value : {};
+  const scope = usageScope(root.scope);
   const sessions = (Array.isArray(root.sessions) ? root.sessions : [])
-    .map(session)
-    .filter((entry): entry is MaintainerSession => entry !== null);
+    .map((entry) => session(entry, scope))
+    .filter((entry): entry is AgentUsageSession => entry !== null);
   return {
+    scope,
+    usagePeriod:
+      root.usagePeriod === "current_month"
+        ? "current_month"
+        : scope === "maintainer"
+          ? "current_month"
+          : "all",
+    usageSince: text(root.usageSince),
     sessions,
     total:
       typeof root.total === "number" && Number.isFinite(root.total)
         ? Math.max(0, Math.trunc(root.total))
         : sessions.length,
+    analytics: normalizeUsageAnalytics(root.analytics),
   };
 }
 

@@ -3,21 +3,28 @@
 import { Alert, AlertDescription, AlertTitle } from "@anorvis/ui/alert";
 import { Badge } from "@anorvis/ui/badge";
 import { Button } from "@anorvis/ui/button";
-import { Card, CardContent, CardHeader } from "@anorvis/ui/card";
 import { Skeleton } from "@anorvis/ui/skeleton";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useState } from "react";
+import {
+  WorkspaceDialog,
+  WorkspaceModalFrame,
+} from "@/components/layout/workspace-dialog";
 import { fetchMaintainerStatus } from "@/features/dev/api/dev";
 import {
   ControlsCard,
   GithubTokenCard,
   ModelAuthCard,
+  maintainerStatusBadgeClass,
 } from "@/features/dev/components/maintainer-actions";
-import { MaintainerSessionsCard } from "@/features/dev/components/maintainer-sessions";
 import { MaintainerTicketsSection } from "@/features/dev/components/maintainer-tickets";
-import { Metric } from "@/features/dev/components/panels";
+import {
+  DetailCard,
+  devModalClass,
+  Metric,
+} from "@/features/dev/components/panels";
 import {
   hasModelAuth,
   type MaintainerCheck,
@@ -41,7 +48,7 @@ function ChecklistRow({ check }: { check: MaintainerCheck }) {
         <span className={workspacePageStyles.listLabel}>{check.label}</span>
         <Badge
           variant={check.ok ? "default" : "destructive"}
-          className={workspacePageStyles.badgeSmall}
+          className={maintainerStatusBadgeClass}
         >
           {check.ok ? "pass" : "fail"}
         </Badge>
@@ -65,16 +72,51 @@ export function MaintainerPanelView({
   loading = false,
   error = null,
   onRetry,
-  actions = null,
+  controls = null,
+  authentication = null,
   tickets = null,
 }: {
   status: MaintainerStatus | null;
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
-  actions?: ReactNode;
+  controls?: ReactNode;
+  authentication?: ReactNode;
   tickets?: ReactNode;
 }) {
+  // The owner reads this tab top-down: what the maintainer is working on
+  // first, setup and configuration below.
+  return (
+    <section className="space-y-4" aria-label="maintainer tickets and setup">
+      {tickets}
+      <MaintainerSetup
+        status={status}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        controls={controls}
+        authentication={authentication}
+      />
+    </section>
+  );
+}
+
+function MaintainerSetup({
+  status,
+  loading,
+  error,
+  onRetry,
+  controls,
+  authentication,
+}: {
+  status: MaintainerStatus | null;
+  loading: boolean;
+  error: string | null;
+  onRetry?: () => void;
+  controls: ReactNode;
+  authentication: ReactNode;
+}) {
+  const [checklistOpen, setChecklistOpen] = useState(false);
   if (loading) {
     return (
       <output
@@ -121,7 +163,7 @@ export function MaintainerPanelView({
   const passed = checks.filter((check) => check.ok).length;
 
   return (
-    <section className="space-y-4" aria-label="maintainer setup and monitoring">
+    <section className="space-y-4" aria-label="maintainer setup">
       <div className={workspacePageStyles.metricsStrip}>
         <Metric
           label="maintainer"
@@ -140,23 +182,69 @@ export function MaintainerPanelView({
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        <Card className={workspacePageStyles.card}>
-          <CardHeader className={workspacePageStyles.cardHeader}>
-            <p className={workspacePageStyles.cardLabel}>{"// readiness"}</p>
-            <h2 className={workspacePageStyles.cardTitle}>setup checklist</h2>
-          </CardHeader>
-          <CardContent className="px-5 py-4">
+        <div className="grid gap-4">
+          <DetailCard
+            label="// readiness"
+            title={`setup checklist · ${passed}/${checks.length}`}
+            onOpen={() => setChecklistOpen(true)}
+          >
             <ul className={workspacePageStyles.list}>
               {checks.map((check) => (
                 <ChecklistRow key={check.key} check={check} />
               ))}
             </ul>
-          </CardContent>
-        </Card>
-        {actions}
+          </DetailCard>
+          {controls}
+        </div>
+        <div className="grid gap-4">{authentication}</div>
       </div>
 
-      {tickets}
+      <WorkspaceDialog
+        open={checklistOpen}
+        onOpenChange={setChecklistOpen}
+        className={devModalClass}
+      >
+        <WorkspaceModalFrame
+          title="maintainer setup checklist"
+          description="Full readiness detail for the local maintainer sandbox and bot credentials."
+        >
+          <div className="space-y-4 py-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Metric label="passed" value={String(passed)} />
+              <Metric label="failed" value={String(checks.length - passed)} />
+              <Metric label="total" value={String(checks.length)} />
+            </div>
+            <ul className={workspacePageStyles.list}>
+              {checks.map((check) => (
+                <li
+                  key={check.key}
+                  className="space-y-2 border-b border-border pb-4 last:border-b-0"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={workspacePageStyles.listLabel}>
+                      {check.label}
+                    </span>
+                    <Badge
+                      variant={check.ok ? "default" : "destructive"}
+                      className={maintainerStatusBadgeClass}
+                    >
+                      {check.ok ? "pass" : "fail"}
+                    </Badge>
+                  </div>
+                  {check.detail ? (
+                    <p className={workspacePageStyles.resourceText}>
+                      {check.detail}
+                    </p>
+                  ) : null}
+                  <p className={workspacePageStyles.cardBodyText}>
+                    {check.hint}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </WorkspaceModalFrame>
+      </WorkspaceDialog>
     </section>
   );
 }
@@ -185,26 +273,23 @@ export function MaintainerPanel() {
       error={
         statusQuery.error instanceof Error ? statusQuery.error.message : null
       }
-      onRetry={() => void statusQuery.refetch()}
-      actions={
+      controls={
         status ? (
-          <div className="grid gap-4">
-            <ControlsCard status={status} onStatusChanged={refreshStatus} />
+          <ControlsCard status={status} onStatusChanged={refreshStatus} />
+        ) : null
+      }
+      authentication={
+        status ? (
+          <>
             <ModelAuthCard
               status={status}
-              onStatusChanged={refreshStatus}
               onVaultLoginStarted={() => setVaultPolling(true)}
             />
             <GithubTokenCard status={status} onStatusChanged={refreshStatus} />
-          </div>
+          </>
         ) : null
       }
-      tickets={
-        <>
-          <MaintainerTicketsSection />
-          <MaintainerSessionsCard />
-        </>
-      }
+      tickets={<MaintainerTicketsSection />}
     />
   );
 }

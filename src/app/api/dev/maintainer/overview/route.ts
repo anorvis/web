@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { normalizeUsageAnalytics, type UsageScope } from "@/features/dev/usage";
 import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { rejectNonOwnerSession } from "@/lib/dev-owner-guard";
 import { isDirectLoopbackRequest } from "@/lib/direct-loopback-request";
 import { isRecord } from "@/lib/guards";
 
@@ -68,6 +70,7 @@ function sanitizeTicket(value: unknown): SanitizedTicket | null {
 
 type SanitizedSession = {
   sessionKey: string;
+  scope: UsageScope;
   host: string;
   provider: string;
   model: string;
@@ -76,6 +79,8 @@ type SanitizedSession = {
   usdCost: number;
   lastSeenAt: string | null;
   reviewed: boolean;
+  stage: "generalizer" | "worker" | null;
+  outcome: string | null;
 };
 
 function count(value: unknown): number {
@@ -85,12 +90,19 @@ function count(value: unknown): number {
 }
 
 /** Session usage facts only; prompts and transcripts never leave the gateway. */
-function sanitizeSession(value: unknown): SanitizedSession | null {
+function sanitizeSession(
+  value: unknown,
+  defaultScope: UsageScope,
+): SanitizedSession | null {
   if (!isRecord(value)) return null;
   const sessionKey = text(value.sessionKey);
   if (!sessionKey) return null;
   return {
     sessionKey,
+    scope:
+      value.scope === "foreground" || value.scope === "maintainer"
+        ? value.scope
+        : defaultScope,
     host: text(value.host) ?? "unknown",
     provider: text(value.provider) ?? "unknown",
     model: text(value.model) ?? "unknown",
@@ -99,6 +111,11 @@ function sanitizeSession(value: unknown): SanitizedSession | null {
     usdCost: count(value.usdCost),
     lastSeenAt: text(value.lastSeenAt),
     reviewed: value.reviewed === true,
+    stage:
+      value.stage === "generalizer" || value.stage === "worker"
+        ? value.stage
+        : null,
+    outcome: text(value.outcome),
   };
 }
 
@@ -106,6 +123,8 @@ export async function GET(request: Request) {
   if (!isDirectLoopbackRequest(request)) {
     return NextResponse.json({ error: "local only" }, { status: 403 });
   }
+  const denied = await rejectNonOwnerSession(request);
+  if (denied) return denied;
 
   const params = new URL(request.url).searchParams;
   const limit = boundedInt(params.get("limit"), DEFAULT_LIMIT, MAX_LIMIT);
@@ -117,6 +136,19 @@ export async function GET(request: Request) {
     );
   }
   const view = params.get("view") === "sessions" ? "sessions" : "tickets";
+  const requestedScope = params.get("scope") ?? "foreground";
+  if (
+    view === "sessions" &&
+    requestedScope !== "foreground" &&
+    requestedScope !== "maintainer"
+  ) {
+    return NextResponse.json(
+      { error: "scope must be foreground or maintainer" },
+      { status: 400 },
+    );
+  }
+  const scope: UsageScope =
+    requestedScope === "maintainer" ? "maintainer" : "foreground";
   const statuses =
     view === "tickets"
       ? (params.get("status") ?? "")
@@ -136,6 +168,7 @@ export async function GET(request: Request) {
       ? new URLSearchParams({
           sessionLimit: String(limit),
           sessionOffset: String(offset),
+          sessionScope: scope,
         })
       : new URLSearchParams({
           limit: String(limit),
@@ -144,15 +177,16 @@ export async function GET(request: Request) {
   if (statuses.length > 0) upstream.set("status", statuses.join(","));
 
   try {
+    const upstreamQuery = upstream.toString();
     const overview = await gatewayFetchJson<unknown>(
-      `/v1/maintenance/overview?${upstream.toString()}`,
+      `/v1/maintainer/overview${upstreamQuery ? `?${upstreamQuery}` : ""}`,
     );
     const root = isRecord(overview) ? overview : {};
 
     if (view === "sessions") {
       const usage = isRecord(root.usage) ? root.usage : {};
       let sessions = (Array.isArray(usage.recent) ? usage.recent : [])
-        .map(sanitizeSession)
+        .map((entry) => sanitizeSession(entry, scope))
         .filter((entry): entry is SanitizedSession => entry !== null);
       let total: number;
       if (
@@ -167,7 +201,23 @@ export async function GET(request: Request) {
         sessions = sessions.slice(offset, offset + limit);
       }
       return NextResponse.json(
-        { sessions, total },
+        {
+          scope,
+          usagePeriod:
+            root.usagePeriod === "current_month"
+              ? "current_month"
+              : scope === "maintainer"
+                ? "current_month"
+                : "all",
+          usageSince: text(root.usageSince),
+          sessions,
+          total,
+          analytics: normalizeUsageAnalytics({
+            totals: usage.totals,
+            byModel: usage.byModel,
+            performance: root.performance,
+          }),
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     }

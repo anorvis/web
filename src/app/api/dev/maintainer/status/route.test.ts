@@ -8,6 +8,10 @@ vi.mock("@/lib/anorvis-gateway", () => ({
   gatewayErrorResponse,
 }));
 
+const rejectNonOwnerSession = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/dev-owner-guard", () => ({ rejectNonOwnerSession }));
+
 const originalBindHost = process.env.ANORVIS_WEB_BIND_HOST;
 
 import { GET } from "./route";
@@ -16,6 +20,8 @@ describe("GET /api/dev/maintainer/status", () => {
   beforeEach(() => {
     gatewayFetchJson.mockReset();
     gatewayErrorResponse.mockReset();
+    rejectNonOwnerSession.mockReset();
+    rejectNonOwnerSession.mockResolvedValue(null);
     process.env.ANORVIS_WEB_BIND_HOST = "127.0.0.1";
   });
 
@@ -67,6 +73,19 @@ describe("GET /api/dev/maintainer/status", () => {
     const response = await GET(
       new Request("http://192.168.1.20:3000/api/dev/maintainer/status", {
         headers: { host: "192.168.1.20:3000" },
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(gatewayFetchJson).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-owner sessions before touching the gateway", async () => {
+    rejectNonOwnerSession.mockResolvedValue(
+      Response.json({ error: "owner session required" }, { status: 403 }),
+    );
+    const response = await GET(
+      new Request("http://127.0.0.1:3000/api/dev/maintainer/status", {
+        headers: { host: "127.0.0.1:3000" },
       }),
     );
     expect(response.status).toBe(403);

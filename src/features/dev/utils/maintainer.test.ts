@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCredentialsPayload,
-  emptyCredentialsInput,
   type MaintainerStatus,
   maintainerChecks,
   normalizeMaintainerStatus,
@@ -98,53 +97,23 @@ describe("maintainerChecks", () => {
 
 describe("buildCredentialsPayload", () => {
   it("rejects an empty form", () => {
-    const result = buildCredentialsPayload(emptyCredentialsInput());
+    const result = buildCredentialsPayload({ githubToken: "" });
     expect(result.payload).toBeNull();
     expect(result.error).toContain("enter a credential");
   });
 
-  it("builds a token-only payload without an apiKeys field", () => {
-    const result = buildCredentialsPayload({
-      githubToken: " ghp_abc123 ",
-      apiKeyName: "",
-      apiKeyValue: "",
-    });
+  it("builds a trimmed token payload", () => {
+    const result = buildCredentialsPayload({ githubToken: " ghp_abc123 " });
     expect(result.error).toBeNull();
     expect(result.payload).toEqual({ githubToken: "ghp_abc123" });
   });
 
-  it("requires both api key name and value together", () => {
-    const nameOnly = buildCredentialsPayload({
-      githubToken: "",
-      apiKeyName: "ANTHROPIC_API_KEY",
-      apiKeyValue: "",
-    });
-    expect(nameOnly.payload).toBeNull();
-    expect(nameOnly.error).toContain("both");
-  });
-
-  it("enforces the PROVIDER_API_KEY naming pattern", () => {
-    const result = buildCredentialsPayload({
-      githubToken: "",
-      apiKeyName: "anthropic_key",
-      apiKeyValue: "sk-123",
-    });
-    expect(result.payload).toBeNull();
-    expect(result.error).toContain("PROVIDER_API_KEY");
-  });
-
   it("rejects multi-line and oversized secrets", () => {
-    const multiline = buildCredentialsPayload({
-      githubToken: "line1\nline2",
-      apiKeyName: "",
-      apiKeyValue: "",
-    });
+    const multiline = buildCredentialsPayload({ githubToken: "line1\nline2" });
     expect(multiline.payload).toBeNull();
 
     const oversized = buildCredentialsPayload({
-      githubToken: "",
-      apiKeyName: "ANTHROPIC_API_KEY",
-      apiKeyValue: "x".repeat(513),
+      githubToken: "x".repeat(513),
     });
     expect(oversized.payload).toBeNull();
   });
@@ -153,29 +122,15 @@ describe("buildCredentialsPayload", () => {
 describe("submitCredentials (write-only contract)", () => {
   it("clears the form only after the gateway accepts the payload", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
-    const result = await submitCredentials(
-      {
-        githubToken: "ghp_secret",
-        apiKeyName: "ANTHROPIC_API_KEY",
-        apiKeyValue: "sk-secret",
-      },
-      save,
-    );
-    expect(save).toHaveBeenCalledWith({
-      githubToken: "ghp_secret",
-      apiKeys: { ANTHROPIC_API_KEY: "sk-secret" },
-    });
+    const result = await submitCredentials({ githubToken: "ghp_secret" }, save);
+    expect(save).toHaveBeenCalledWith({ githubToken: "ghp_secret" });
     expect(result.saved).toBe(true);
-    expect(result.input).toEqual(emptyCredentialsInput());
+    expect(result.input).toEqual({ githubToken: "" });
   });
 
   it("keeps typed values when the save fails so the operator can retry", async () => {
     const save = vi.fn().mockRejectedValue(new Error("gateway offline"));
-    const input = {
-      githubToken: "ghp_secret",
-      apiKeyName: "",
-      apiKeyValue: "",
-    };
+    const input = { githubToken: "ghp_secret" };
     const result = await submitCredentials(input, save);
     expect(result.saved).toBe(false);
     expect(result.input).toEqual(input);
@@ -184,7 +139,7 @@ describe("submitCredentials (write-only contract)", () => {
 
   it("never calls the gateway with an invalid form", async () => {
     const save = vi.fn();
-    const result = await submitCredentials(emptyCredentialsInput(), save);
+    const result = await submitCredentials({ githubToken: "" }, save);
     expect(save).not.toHaveBeenCalled();
     expect(result.saved).toBe(false);
   });
@@ -242,9 +197,13 @@ describe("normalizePreflight", () => {
 describe("normalizeSessionPage", () => {
   it("keeps usage facts, defaults junk numbers, and uses the server total", () => {
     const page = normalizeSessionPage({
+      scope: "maintainer",
+      usagePeriod: "current_month",
+      usageSince: "2026-07-01T00:00:00.000Z",
       sessions: [
         {
           sessionKey: "s1",
+          scope: "maintainer",
           host: "omp",
           provider: "anthropic",
           model: "claude-opus",
@@ -253,15 +212,21 @@ describe("normalizeSessionPage", () => {
           usdCost: "free",
           lastSeenAt: "2026-07-15T10:00:00.000Z",
           reviewed: true,
+          stage: "generalizer",
+          outcome: "completed",
         },
         { host: "missing session key" },
       ],
       total: 57,
     });
     expect(page.total).toBe(57);
+    expect(page.scope).toBe("maintainer");
+    expect(page.usagePeriod).toBe("current_month");
+    expect(page.usageSince).toBe("2026-07-01T00:00:00.000Z");
     expect(page.sessions).toHaveLength(1);
     expect(page.sessions[0]).toEqual({
       sessionKey: "s1",
+      scope: "maintainer",
       host: "omp",
       provider: "anthropic",
       model: "claude-opus",
@@ -270,6 +235,8 @@ describe("normalizeSessionPage", () => {
       usdCost: 0,
       lastSeenAt: "2026-07-15T10:00:00.000Z",
       reviewed: true,
+      stage: "generalizer",
+      outcome: "completed",
     });
   });
 
@@ -278,5 +245,8 @@ describe("normalizeSessionPage", () => {
       sessions: [{ sessionKey: "s1" }],
     });
     expect(page.total).toBe(1);
+    expect(page.scope).toBe("foreground");
+    expect(page.usagePeriod).toBe("all");
+    expect(page.usageSince).toBeNull();
   });
 });

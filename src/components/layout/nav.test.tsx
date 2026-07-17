@@ -15,6 +15,23 @@ vi.mock("next/link", () => ({
     createElement("a", { href }, children),
 }));
 
+const ownership = vi.hoisted(() => ({ resolved: false, isOwner: false }));
+
+vi.mock("@/hooks/use-workspace-owner", () => ({
+  useWorkspaceOwner: () => ({ ...ownership }),
+}));
+
+function renderNav() {
+  const client = new QueryClient();
+  return renderToStaticMarkup(
+    createElement(QueryClientProvider, { client }, createElement(WorkspaceNav)),
+  );
+}
+
+function renderedHrefs(html: string) {
+  return Array.from(html.matchAll(/<a href="([^"]*)"/g), (m) => m[1]);
+}
+
 describe("workspace nav", () => {
   it("orders the nav config home, dev, life, health, finance", () => {
     expect(workspaceNavItems.map((item) => item.label)).toEqual([
@@ -26,17 +43,38 @@ describe("workspace nav", () => {
     ]);
   });
 
-  it("renders dev immediately right of home with sibling styling", () => {
-    const client = new QueryClient();
-    const html = renderToStaticMarkup(
-      createElement(
-        QueryClientProvider,
-        { client },
-        createElement(WorkspaceNav),
-      ),
-    );
+  it("marks only dev as owner-only", () => {
+    expect(
+      workspaceNavItems.filter((item) => item.ownerOnly).map((i) => i.href),
+    ).toEqual(["/dev"]);
+  });
 
-    const hrefs = Array.from(html.matchAll(/<a href="([^"]*)"/g), (m) => m[1]);
-    expect(hrefs).toEqual(["/", "/dev", "/life", "/health", "/finance"]);
+  it("renders dev immediately right of home for the owner", () => {
+    ownership.resolved = true;
+    ownership.isOwner = true;
+    expect(renderedHrefs(renderNav())).toEqual([
+      "/",
+      "/dev",
+      "/life",
+      "/health",
+      "/finance",
+    ]);
+  });
+
+  it("hides dev from non-owner sessions", () => {
+    ownership.resolved = true;
+    ownership.isOwner = false;
+    expect(renderedHrefs(renderNav())).toEqual([
+      "/",
+      "/life",
+      "/health",
+      "/finance",
+    ]);
+  });
+
+  it("hides dev while the viewer role is still unresolved (fail closed)", () => {
+    ownership.resolved = false;
+    ownership.isOwner = false;
+    expect(renderedHrefs(renderNav())).not.toContain("/dev");
   });
 });

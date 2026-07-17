@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { rejectNonOwnerSession } from "@/lib/dev-owner-guard";
 import { isRecord } from "@/lib/guards";
 import { rejectUnsafeLocalMutation } from "@/lib/local-mutation-guard";
 
@@ -25,6 +26,8 @@ function sanitizePreflight(value: unknown) {
 export async function POST(request: Request) {
   const rejected = rejectUnsafeLocalMutation(request);
   if (rejected) return rejected;
+  const denied = await rejectNonOwnerSession(request);
+  if (denied) return denied;
   try {
     const result = await gatewayFetchJson<unknown>("/v1/maintainer/preflight", {
       method: "POST",

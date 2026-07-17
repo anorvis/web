@@ -1,8 +1,64 @@
 "use client";
 
 import { Button } from "@anorvis/ui/button";
+import { Card, CardContent, CardHeader } from "@anorvis/ui/card";
 import { workspacePageStyles } from "@anorvis/ui/styles";
+import type { ReactNode } from "react";
 import { useState } from "react";
+
+/** Wide detail modal, matching the life/health/finance dialog sizing. */
+export const devModalClass =
+  "max-h-[84vh] w-[min(94vw,64rem)] max-w-none overflow-hidden p-0 sm:!max-w-none";
+
+/**
+ * Clickable summary card that opens a detail modal, mirroring the
+ * integrations-card pattern: the whole card reacts to pointer clicks while
+ * the header button carries the keyboard/ARIA path.
+ */
+export function DetailCard({
+  label,
+  title,
+  onOpen,
+  children,
+}: {
+  label: string;
+  title: string;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Card
+      className={`${workspacePageStyles.card} cursor-pointer transition hover:border-foreground`}
+      onClick={onOpen}
+    >
+      <CardHeader className={workspacePageStyles.cardHeader}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-2">
+            <p className={workspacePageStyles.cardLabel}>{label}</p>
+            <h2 className={workspacePageStyles.cardTitle}>{title}</h2>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={workspacePageStyles.actionButton}
+            aria-haspopup="dialog"
+            aria-label={`open ${title} detail`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen();
+            }}
+          >
+            detail
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col px-5 py-4">
+        {children}
+      </CardContent>
+    </Card>
+  );
+}
 
 export function Metric({ label, value }: { label: string; value: string }) {
   return (

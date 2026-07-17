@@ -7,6 +7,7 @@ import { workspacePageStyles } from "@anorvis/ui/styles";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchMaintainerTickets } from "@/features/dev/api/dev";
+import { maintainerStatusBadgeClass } from "@/features/dev/components/maintainer-actions";
 import {
   DEV_PAGE_SIZE,
   PagerControls,
@@ -34,7 +35,7 @@ function TicketRow({ ticket }: { ticket: MaintainerTicket }) {
       <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant={RUNNING_STATUSES[ticket.status] ? "default" : "outline"}
-          className={workspacePageStyles.badgeSmall}
+          className={maintainerStatusBadgeClass}
         >
           {ticket.status.replaceAll("_", " ")}
         </Badge>
@@ -93,7 +94,7 @@ export function TicketGroupCardView({
         ) : error ? (
           <p className={workspacePageStyles.errorText}>{error}</p>
         ) : tickets.length === 0 ? (
-          <p className="border border-dashed border-border px-4 py-8 text-center text-[0.65rem] text-muted-foreground">
+          <p className="border border-dashed border-border px-4 py-6 text-center text-[0.65rem] text-muted-foreground">
             No {label} tickets.
           </p>
         ) : (

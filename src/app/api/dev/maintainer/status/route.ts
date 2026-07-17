@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { gatewayErrorResponse, gatewayFetchJson } from "@/lib/anorvis-gateway";
+import { rejectNonOwnerSession } from "@/lib/dev-owner-guard";
 import { isDirectLoopbackRequest } from "@/lib/direct-loopback-request";
 import { isRecord } from "@/lib/guards";
 
@@ -49,6 +50,8 @@ export async function GET(request: Request) {
   if (!isDirectLoopbackRequest(request)) {
     return NextResponse.json({ error: "local only" }, { status: 403 });
   }
+  const denied = await rejectNonOwnerSession(request);
+  if (denied) return denied;
   try {
     const status = await gatewayFetchJson<unknown>("/v1/maintainer/status");
     return NextResponse.json(sanitizeStatus(status), {

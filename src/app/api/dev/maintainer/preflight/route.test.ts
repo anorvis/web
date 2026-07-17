@@ -8,6 +8,10 @@ vi.mock("@/lib/anorvis-gateway", () => ({
   gatewayErrorResponse,
 }));
 
+const rejectNonOwnerSession = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/dev-owner-guard", () => ({ rejectNonOwnerSession }));
+
 const originalBindHost = process.env.ANORVIS_WEB_BIND_HOST;
 
 import { POST } from "./route";
@@ -29,6 +33,8 @@ describe("POST /api/dev/maintainer/preflight", () => {
   beforeEach(() => {
     gatewayFetchJson.mockReset();
     gatewayErrorResponse.mockReset();
+    rejectNonOwnerSession.mockReset();
+    rejectNonOwnerSession.mockResolvedValue(null);
     process.env.ANORVIS_WEB_BIND_HOST = "127.0.0.1";
   });
 
@@ -73,6 +79,15 @@ describe("POST /api/dev/maintainer/preflight", () => {
 
   it("rejects a foreign Origin", async () => {
     const response = await POST(post({ origin: "https://evil.example" }));
+    expect(response.status).toBe(403);
+    expect(gatewayFetchJson).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-owner sessions before touching the gateway", async () => {
+    rejectNonOwnerSession.mockResolvedValue(
+      Response.json({ error: "owner session required" }, { status: 403 }),
+    );
+    const response = await POST(post());
     expect(response.status).toBe(403);
     expect(gatewayFetchJson).not.toHaveBeenCalled();
   });

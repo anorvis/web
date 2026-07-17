@@ -4,7 +4,7 @@ import { Button } from "@anorvis/ui/button";
 import { workspacePageStyles } from "@anorvis/ui/styles";
 import { cn } from "@anorvis/ui/utils";
 import { useQueryClient } from "@tanstack/react-query";
-import { ContextPanel } from "@/features/dev/components/context-panel";
+import { AgentUsagePanel } from "@/features/dev/components/agent-usage";
 import { MaintainerPanel } from "@/features/dev/components/maintainer-panel";
 import { useDevStore } from "@/features/dev/stores/dev-store";
 import { queryKeys } from "@/lib/query/keys";
@@ -15,7 +15,9 @@ export function DevPlatformDashboard() {
 
   const refresh = () => {
     if (activeTab === "operations") {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.dev.context() });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.dev.agentUsageRoot(),
+      });
       return;
     }
     void queryClient.invalidateQueries({
@@ -23,9 +25,6 @@ export function DevPlatformDashboard() {
     });
     void queryClient.invalidateQueries({
       queryKey: queryKeys.dev.maintainerTicketsRoot(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.dev.maintainerSessionsRoot(),
     });
   };
 
@@ -69,7 +68,7 @@ export function DevPlatformDashboard() {
         </Button>
       </div>
 
-      {activeTab === "operations" ? <ContextPanel /> : <MaintainerPanel />}
+      {activeTab === "operations" ? <AgentUsagePanel /> : <MaintainerPanel />}
     </div>
   );
 }

@@ -1,9 +1,7 @@
+import { devAuthHeaders } from "@/features/dev/api/session-token";
+import type { UsageScope } from "@/features/dev/usage";
 import {
-  type ContextOverview,
-  normalizeContextOverview,
-} from "@/features/dev/utils/context";
-import {
-  type MaintainerSessionPage,
+  type AgentUsagePage,
   type MaintainerStatus,
   type MaintainerTicketPage,
   normalizeMaintainerStatus,
@@ -16,20 +14,28 @@ import {
   type SmokeResult,
   type VaultLoginResult,
 } from "@/features/dev/utils/maintainer";
-import { postJson, requestJson } from "@/lib/effect/http";
+import { requestJson } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
 
-export async function fetchDevContext(): Promise<ContextOverview> {
-  const value = await runEffect(
-    requestJson<unknown>("/api/dev/context", { cache: "no-store" }),
-  );
-  return normalizeContextOverview(value);
+/** GET against /api/dev with the owner-guard session token attached. */
+function devGet(path: string) {
+  return requestJson<unknown>(path, {
+    cache: "no-store",
+    headers: devAuthHeaders(),
+  });
+}
+
+/** POST against /api/dev with the owner-guard session token attached. */
+function devPost(path: string, body: unknown) {
+  return requestJson<unknown>(path, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: devAuthHeaders(),
+  });
 }
 
 export async function fetchMaintainerStatus(): Promise<MaintainerStatus> {
-  const value = await runEffect(
-    requestJson<unknown>("/api/dev/maintainer/status", { cache: "no-store" }),
-  );
+  const value = await runEffect(devGet("/api/dev/maintainer/status"));
   return normalizeMaintainerStatus(value);
 }
 
@@ -44,26 +50,24 @@ export async function fetchMaintainerTickets(
     offset: String(page * pageSize),
   });
   const value = await runEffect(
-    requestJson<unknown>(`/api/dev/maintainer/overview?${query.toString()}`, {
-      cache: "no-store",
-    }),
+    devGet(`/api/dev/maintainer/overview?${query.toString()}`),
   );
   return normalizeTicketPage(value);
 }
 
-export async function fetchMaintainerSessions(
+export async function fetchAgentUsagePage(
+  scope: UsageScope,
   page: number,
   pageSize: number,
-): Promise<MaintainerSessionPage> {
+): Promise<AgentUsagePage> {
   const query = new URLSearchParams({
     view: "sessions",
+    scope,
     limit: String(pageSize),
     offset: String(page * pageSize),
   });
   const value = await runEffect(
-    requestJson<unknown>(`/api/dev/maintainer/overview?${query.toString()}`, {
-      cache: "no-store",
-    }),
+    devGet(`/api/dev/maintainer/overview?${query.toString()}`),
   );
   return normalizeSessionPage(value);
 }
@@ -71,37 +75,26 @@ export async function fetchMaintainerSessions(
 export async function updateMaintainerSettings(
   enabled: boolean,
 ): Promise<void> {
-  await runEffect(
-    postJson<unknown>("/api/dev/maintainer/settings", { enabled }),
-  );
+  await runEffect(devPost("/api/dev/maintainer/settings", { enabled }));
 }
 
 export async function saveMaintainerCredentials(payload: {
-  githubToken?: string;
-  apiKeys?: Record<string, string>;
+  githubToken: string;
 }): Promise<void> {
-  await runEffect(
-    postJson<unknown>("/api/dev/maintainer/credentials", payload),
-  );
+  await runEffect(devPost("/api/dev/maintainer/credentials", payload));
 }
 
 export async function runMaintainerPreflight(): Promise<PreflightResult> {
-  const value = await runEffect(
-    postJson<unknown>("/api/dev/maintainer/preflight", {}),
-  );
+  const value = await runEffect(devPost("/api/dev/maintainer/preflight", {}));
   return normalizePreflight(value);
 }
 
 export async function runMaintainerSmoke(): Promise<SmokeResult> {
-  const value = await runEffect(
-    postJson<unknown>("/api/dev/maintainer/smoke", {}),
-  );
+  const value = await runEffect(devPost("/api/dev/maintainer/smoke", {}));
   return normalizeSmoke(value);
 }
 
 export async function runMaintainerVaultLogin(): Promise<VaultLoginResult> {
-  const value = await runEffect(
-    postJson<unknown>("/api/dev/maintainer/vault-login", {}),
-  );
+  const value = await runEffect(devPost("/api/dev/maintainer/vault-login", {}));
   return normalizeVaultLogin(value);
 }

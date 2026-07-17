@@ -2,9 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { normalizeMaintainerStatus } from "../utils/maintainer";
-import { GithubTokenCard, ModelAuthCard } from "./maintainer-actions";
+import { SessionsCardView } from "./agent-usage";
+import {
+  ControlsCard,
+  GithubTokenCard,
+  ModelAuthCard,
+} from "./maintainer-actions";
 import { MaintainerPanelView } from "./maintainer-panel";
-import { SessionsCardView } from "./maintainer-sessions";
 import { TicketGroupCardView } from "./maintainer-tickets";
 
 const noop = () => {};
@@ -56,42 +60,74 @@ describe("MaintainerPanelView", () => {
     );
     expect(failed).toContain("Maintainer status unavailable");
   });
+
+  it("renders the tickets it is working on above setup", () => {
+    const html = renderToStaticMarkup(
+      createElement(MaintainerPanelView, {
+        status: normalizeMaintainerStatus(statusPayload),
+        tickets: createElement("p", null, "TICKETS_AT_TOP"),
+      }),
+    );
+
+    const tickets = html.indexOf("TICKETS_AT_TOP");
+    const setup = html.indexOf("setup checklist");
+    expect(tickets).toBeGreaterThanOrEqual(0);
+    expect(setup).toBeGreaterThan(tickets);
+  });
+});
+
+describe("ControlsCard", () => {
+  it("balances runtime status and settings action as a full-width controls row", () => {
+    const html = renderToStaticMarkup(
+      createElement(ControlsCard, {
+        status: normalizeMaintainerStatus(statusPayload),
+        onStatusChanged: noop,
+      }),
+    );
+
+    expect(html).toContain('aria-label="maintainer runtime status"');
+    expect(html).toContain("sm:justify-between");
+    expect(html).toContain("maintainer runtime");
+    expect(html).toContain("Accepting approved owner tickets.");
+    expect(html).toContain("disable maintainer");
+    expect(html).toContain("h-5");
+    expect(html.indexOf("maintainer runtime")).toBeLessThan(
+      html.indexOf("disable maintainer"),
+    );
+  });
 });
 
 describe("ModelAuthCard", () => {
-  it("offers the dedicated sandbox sign-in with the copyable fallback command", () => {
+  it("offers the subscription sign-in with the fallback in a disclosure", () => {
     const html = renderToStaticMarkup(
       createElement(ModelAuthCard, {
         status: normalizeMaintainerStatus({
           ...statusPayload,
-          modelAuth: { vault: false, apiKeys: ["ANTHROPIC_API_KEY"] },
+          modelAuth: { vault: false, apiKeys: [] },
         }),
-        onStatusChanged: noop,
         onVaultLoginStarted: noop,
       }),
     );
 
     expect(html).toContain("sign in sandbox vault");
+    expect(html).toContain("vault not configured");
+    expect(html).toContain("<details");
+    expect(html).toContain("terminal fallback");
     expect(html).toContain("PI_CODING_AGENT_DIR=/opt/sandbox/agent omp");
     expect(html).toContain("copy");
-    expect(html).toContain("separate from");
-    expect(html).toContain("vault not configured");
-    expect(html).toContain("ANTHROPIC_API_KEY configured");
   });
 
-  it("keeps the api key value field write-only", () => {
+  it("renders no api key form; subscription auth is the only path", () => {
     const html = renderToStaticMarkup(
       createElement(ModelAuthCard, {
         status: normalizeMaintainerStatus(statusPayload),
-        onStatusChanged: noop,
         onVaultLoginStarted: noop,
       }),
     );
 
-    expect(html).toContain('type="password"');
-    // Configured keys surface as presence badges only; no value is rendered.
-    expect(html).toContain("ANTHROPIC_API_KEY configured");
-    expect(html).toMatch(/type="password"[^>]*value=""/);
+    expect(html).not.toContain("api key");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("save");
   });
 });
 
@@ -164,6 +200,7 @@ describe("TicketGroupCardView", () => {
 describe("SessionsCardView", () => {
   const session = {
     sessionKey: "s1",
+    scope: "foreground" as const,
     host: "omp",
     provider: "anthropic",
     model: "claude-opus",
@@ -172,11 +209,14 @@ describe("SessionsCardView", () => {
     usdCost: 1.25,
     lastSeenAt: "2026-07-15T10:00:00.000Z",
     reviewed: false,
+    stage: null,
+    outcome: null,
   };
 
   it("renders session usage rows with server-driven pagination", () => {
     const html = renderToStaticMarkup(
       createElement(SessionsCardView, {
+        scope: "foreground",
         sessions: [session],
         total: 57,
         page: 1,
@@ -199,6 +239,7 @@ describe("SessionsCardView", () => {
   it("guides the operator when no sessions exist yet", () => {
     const html = renderToStaticMarkup(
       createElement(SessionsCardView, {
+        scope: "foreground",
         sessions: [],
         total: 0,
         page: 0,
@@ -207,6 +248,6 @@ describe("SessionsCardView", () => {
         onPage: noop,
       }),
     );
-    expect(html).toContain("Maintainer sessions will appear here");
+    expect(html).toContain("Interactive agent sessions will appear here");
   });
 });
