@@ -16,12 +16,13 @@ import { useState } from "react";
 import { ModeToggle } from "@/components/utils/dark-mode-toggle";
 import { useHealthStore } from "@/features/health/stores/health-store";
 import { useMountEffect } from "@/hooks/use-mount-effect";
+import { useWorkspaceOwner } from "@/hooks/use-workspace-owner";
 import { prefetchRouteData } from "@/lib/query/preloads";
 import {
   preferredCurrencies,
   useFinancePreferences,
 } from "@/lib/stores/finance-preferences";
-import { developerNavItem, workspaceNavItems } from "./config";
+import { workspaceNavItems } from "./config";
 
 const isActiveLink = (pathname: string, href: string) => {
   if (href === "/") {
@@ -34,6 +35,7 @@ export function WorkspaceNav() {
   const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { isOwner } = useWorkspaceOwner();
   const { unitSystem, hydrateUnitSystem, setUnitSystem } = useHealthStore();
   const { preferredCurrency, hydratePreferredCurrency, setPreferredCurrency } =
     useFinancePreferences();
@@ -55,38 +57,27 @@ export function WorkspaceNav() {
       <div className="space-y-2">
         <p className={workspaceStyles.navTitle}>{"// console"}</p>
         <nav className={workspaceStyles.navLinks}>
-          {workspaceNavItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              prefetch
-              onPointerEnter={() => prefetch(item.href)}
-              onFocus={() => prefetch(item.href)}
-              className={cn(
-                workspaceStyles.navLink,
-                isActiveLink(pathname, item.href) &&
-                  workspaceStyles.navLinkActive,
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {workspaceNavItems
+            .filter((item) => !item.ownerOnly || isOwner)
+            .map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch
+                onPointerEnter={() => prefetch(item.href)}
+                onFocus={() => prefetch(item.href)}
+                className={cn(
+                  workspaceStyles.navLink,
+                  isActiveLink(pathname, item.href) &&
+                    workspaceStyles.navLinkActive,
+                )}
+              >
+                {item.label}
+              </Link>
+            ))}
         </nav>
       </div>
       <div className={workspaceStyles.navActions}>
-        <Link
-          href={developerNavItem.href}
-          prefetch
-          onPointerEnter={() => prefetch(developerNavItem.href)}
-          onFocus={() => prefetch(developerNavItem.href)}
-          className={cn(
-            workspaceStyles.navLink,
-            isActiveLink(pathname, developerNavItem.href) &&
-              workspaceStyles.navLinkActive,
-          )}
-        >
-          {developerNavItem.label}
-        </Link>
         {mounted ? (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>

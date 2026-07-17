@@ -6,12 +6,26 @@ afterEach(() => {
   useDevStore.getState().setActiveTab("operations");
 });
 
-describe("dev operations state", () => {
-  it("starts on operations and keeps its context query isolated", () => {
+describe("dev tab state", () => {
+  it("starts on operations", () => {
     expect(useDevStore.getState().activeTab).toBe("operations");
-    expect(queryKeys.dev.context()).toEqual(["dev", "context"]);
+  });
 
-    useDevStore.getState().setActiveTab("jobs");
-    expect(useDevStore.getState().activeTab).toBe("jobs");
+  it("switches to the maintainer tab with isolated query keys", () => {
+    useDevStore.getState().setActiveTab("maintainer");
+    expect(useDevStore.getState().activeTab).toBe("maintainer");
+
+    expect(queryKeys.dev.maintainerStatus()).toEqual([
+      "dev",
+      "maintainer",
+      "status",
+    ]);
+    expect(queryKeys.dev.maintainerTickets("pending", 2)).toEqual([
+      "dev",
+      "maintainer",
+      "tickets",
+      "pending",
+      2,
+    ]);
   });
 });

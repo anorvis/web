@@ -1,5 +1,4 @@
 import { ConvexReactClient } from "convex/react";
+import { convexDeploymentUrl } from "@/lib/convex-url";
 
-const url = process.env.NEXT_PUBLIC_CONVEX_URL ?? "http://127.0.0.1:3210";
-
-export const convexClient = new ConvexReactClient(url);
+export const convexClient = new ConvexReactClient(convexDeploymentUrl);

@@ -17,7 +17,10 @@ export type IntegrationPublication = {
 };
 
 export const convexApi = {
-  workspaces: { ensureDefault: mutation("platform/workspace:ensureDefault") },
+  workspaces: {
+    ensureDefault: mutation("platform/workspace:ensureDefault"),
+    viewer: query<{ role?: string } | null>("platform/workspace:viewer"),
+  },
   life: {
     snapshot: query("capability/life:snapshot"),
     listTags: query("capability/life:listTags"),
