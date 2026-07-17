@@ -28,7 +28,7 @@ import { convexClient } from "@/lib/convex-client";
 import { convexApi } from "@/lib/convex-functions";
 import { clearLifeReadCache } from "@/lib/life-intelligence/life-read-cache";
 import { queryKeys } from "@/lib/query/keys";
-import { getStatusTone } from "@/lib/workspace/view-utils";
+import { formatRelativeTime, getStatusTone } from "@/lib/workspace/view-utils";
 
 export type WorkspaceSourceSettings = {
   connected: boolean;
@@ -105,7 +105,8 @@ function useIntegrationCardController(integration: IntegrationCatalogEntry) {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const googleCanStartOAuth =
     integration.id === "google" &&
-    (googleSettings?.hasClientConfig ||
+    (integration.status === "error" ||
+      googleSettings?.hasClientConfig ||
       integration.setupHint === "Ready to connect through Google OAuth.");
   const pinterestCanStartOAuth =
     integration.id === "pinterest" &&
@@ -381,13 +382,15 @@ export function IntegrationCard({
   const isDisabled = integration.status === "unavailable" && !canConnect;
   const mark = PROVIDER_MARK[integration.id] ?? integration.displayName[0];
   const stateLabel =
-    integration.status === "connected"
-      ? "connected"
-      : integration.status === "pending"
-        ? "pending"
-        : canConnect
-          ? "connect"
-          : "unavailable";
+    integration.status === "error" && integration.id === "google"
+      ? "Reconnect Google"
+      : integration.status === "connected"
+        ? "connected"
+        : integration.status === "pending"
+          ? "pending"
+          : canConnect
+            ? "connect"
+            : "unavailable";
   const stateClassName = cn(
     "inline-flex h-7 items-center justify-center rounded-none border px-2.5 text-[0.5rem] uppercase tracking-[0.2em] transition-colors",
     getStatusTone(
@@ -397,9 +400,10 @@ export function IntegrationCard({
           ? "elevated"
           : integration.status === "connected"
             ? "connected"
-            : "disconnected",
+            : integration.status === "error"
+              ? "error"
+              : "disconnected",
     ),
-    canConnect && "hover:border-foreground hover:text-foreground",
   );
 
   return (
@@ -455,6 +459,34 @@ export function IntegrationCard({
               {integration.setupHint}
             </p>
           )}
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            <span className={workspacePageStyles.metricLabel}>
+              Checked {formatRelativeTime(integration.sync.lastSyncedAt)}
+            </span>
+            <span className={workspacePageStyles.metricLabel}>
+              Updated {formatRelativeTime(integration.sync.lastChangedAt)}
+            </span>
+          </div>
+          {integration.sync.lastError ? (
+            <p
+              role="alert"
+              className="text-[0.62rem] text-rose-600 dark:text-rose-300"
+            >
+              sync error: {integration.sync.lastError}
+            </p>
+          ) : null}
+          {integration.id === "google" && integration.status === "error" ? (
+            <button
+              type="button"
+              className={workspacePageStyles.actionButton}
+              onClick={(event) => {
+                event.stopPropagation();
+                openModal();
+              }}
+            >
+              Reconnect Google
+            </button>
+          ) : null}
         </CardContent>
       </Card>
       <WorkspaceDialog

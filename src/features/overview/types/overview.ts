@@ -1,3 +1,5 @@
+import type { IntegrationSync } from "@/lib/convex-functions";
+
 export type DomainStatus = "connected" | "partial" | "disconnected";
 
 export type OverviewHealthSnapshot = {
@@ -30,14 +32,14 @@ export type FocusRecommendation = {
   detail: string;
   href: string;
 };
-
 export type AgentRuntimeStatus = "online" | "idle" | "offline";
 
 export type IntegrationCatalogStatus =
   | "connected"
   | "pending"
   | "available"
-  | "unavailable";
+  | "unavailable"
+  | "error";
 
 export type IntegrationCatalogEntry = {
   id: string;
@@ -47,6 +49,8 @@ export type IntegrationCatalogEntry = {
   capabilities: string[];
   authType: "local" | "oauth2" | "token" | "webhook";
   status: IntegrationCatalogStatus;
+  hasCredentials: boolean;
+  sync: IntegrationSync;
   connectProvider?: string;
   setupHint?: string;
 };

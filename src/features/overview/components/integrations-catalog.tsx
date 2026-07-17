@@ -2,13 +2,23 @@
 
 import { Button } from "@anorvis/ui/button";
 import { workspacePageStyles } from "@anorvis/ui/styles";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { IntegrationCard } from "@/features/integrations/components/card";
-import { useIntegrations } from "@/features/overview/components/overview-provider";
+import {
+  fetchIntegrationsList,
+  mapIntegrations,
+} from "@/features/overview/api/overview";
+import { queryKeys } from "@/lib/query/keys";
 
 const PAGE_SIZE = 6;
 export function IntegrationsCatalog() {
-  const integrations = useIntegrations();
+  const { data } = useQuery({
+    queryKey: queryKeys.integrations(),
+    queryFn: fetchIntegrationsList,
+    select: mapIntegrations,
+  });
+  const integrations = data ?? [];
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
 

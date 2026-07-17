@@ -2,9 +2,25 @@ import "server-only";
 
 import type { IntegrationCatalogEntry } from "@/features/overview/types/overview";
 import { convexClient } from "@/lib/convex-client";
-import { convexApi } from "@/lib/convex-functions";
+import {
+  convexApi,
+  type IntegrationPublication,
+  type IntegrationSync,
+} from "@/lib/convex-functions";
 
-const convexIntegrations: IntegrationCatalogEntry[] = [
+const EMPTY_SYNC: IntegrationSync = {
+  sequence: null,
+  lastSyncedAt: null,
+  lastChangedAt: null,
+  lastAttemptAt: null,
+  lastError: null,
+  lastErrorAt: null,
+};
+
+const convexIntegrations: Omit<
+  IntegrationCatalogEntry,
+  "hasCredentials" | "sync"
+>[] = [
   {
     id: "hevy",
     displayName: "Hevy",
@@ -48,14 +64,18 @@ export async function getIntegrationCatalog(): Promise<
   const connections = (await convexClient.query(
     convexApi.integrations.list,
     {},
-  )) as Array<{
-    provider: string;
-    status: IntegrationCatalogEntry["status"];
-  }>;
-  return convexIntegrations.map((integration) => ({
-    ...integration,
-    status:
-      connections.find((connection) => connection.provider === integration.id)
-        ?.status ?? integration.status,
-  }));
+  )) as IntegrationPublication[];
+  return convexIntegrations.map((integration) => {
+    const connection = connections.find(
+      (item) => item.provider === integration.id,
+    );
+    return {
+      ...integration,
+      status:
+        (connection?.status as IntegrationCatalogEntry["status"] | undefined) ??
+        integration.status,
+      hasCredentials: connection?.hasCredentials ?? false,
+      sync: connection?.sync ?? EMPTY_SYNC,
+    };
+  });
 }

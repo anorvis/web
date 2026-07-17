@@ -5,11 +5,6 @@ import {
 } from "@/features/health/api/schemas";
 import { bmrMifflinStJeor, tdee } from "@/features/health/lib/health-metrics";
 import type {
-  DetailedWorkoutSummary,
-  ExerciseStats,
-  WorkoutSummary,
-} from "@/features/health/types/health";
-import type {
   NativeHealthDashboard,
   NativeMacroProfile,
   NativeMeal,
@@ -320,55 +315,6 @@ function mapWorkout(workout: ConvexRecord): NativeWorkout {
   };
 }
 
-function totalVolumeLbs(workout: NativeWorkout): number {
-  return Math.round(
-    workout.exercises.reduce(
-      (sum, exercise) =>
-        sum +
-        exercise.sets.reduce(
-          (setSum, set) =>
-            setSum + (set.weightKg ?? 0) * 2.2046226218 * (set.reps ?? 0),
-          0,
-        ),
-      0,
-    ),
-  );
-}
-
-function workoutSummary(workout: NativeWorkout): WorkoutSummary {
-  const end = new Date(
-    Date.parse(workout.startedAt) + workout.durationSeconds * 1000,
-  ).toISOString();
-  return {
-    id: workout.id,
-    title: workout.title,
-    startTime: workout.startedAt,
-    endTime: end,
-    durationSeconds: workout.durationSeconds,
-    totalVolumeLbs: totalVolumeLbs(workout),
-    exerciseCount: workout.exercises.length,
-    topExercises: workout.exercises.slice(0, 3).map((exercise) => ({
-      title: exercise.title,
-      summary: `${exercise.sets.length} sets`,
-    })),
-  };
-}
-
-function detailedWorkout(workout: NativeWorkout): DetailedWorkoutSummary {
-  return {
-    ...workoutSummary(workout),
-    exercises: workout.exercises.map((exercise) => ({
-      title: exercise.title,
-      sets: exercise.sets.map((set, index) => ({
-        index: index + 1,
-        type: set.setType,
-        weight: set.weightKg === null ? "" : `${set.weightKg} kg`,
-        reps: set.reps === null ? "" : String(set.reps),
-      })),
-    })),
-  };
-}
-
 function mapDashboard(payload: ConvexRecord): NativeHealthDashboard {
   return {
     macroProfile: mapMacroProfile(
@@ -554,63 +500,4 @@ export function fetchHevyExerciseTemplates(): Promise<{
   ) as Promise<{
     exerciseTemplates: HevyExerciseTemplate[];
   }>;
-}
-
-export async function fetchExerciseStats(
-  exercise: string,
-): Promise<ExerciseStats> {
-  const dashboard = await fetchHealthDashboard();
-  const matchingSets = dashboard.recentWorkouts.flatMap((workout) =>
-    workout.exercises
-      .filter((item) => item.title.toLowerCase() === exercise.toLowerCase())
-      .flatMap((item) =>
-        item.sets.map((set) => ({
-          date: workout.startedAt,
-          weightKg: set.weightKg,
-          reps: set.reps,
-        })),
-      ),
-  );
-  return {
-    exercise,
-    trend: matchingSets.length >= 2 ? "plateau" : "insufficient",
-    e1rmSeries: matchingSets.flatMap((set) =>
-      set.weightKg && set.reps
-        ? [
-            {
-              date: set.date,
-              e1rm: Math.round(
-                set.weightKg * 2.2046226218 * (1 + set.reps / 30),
-              ),
-            },
-          ]
-        : [],
-    ),
-    volumeSeries: matchingSets.map((set) => ({
-      date: set.date,
-      volume: Math.round((set.weightKg ?? 0) * 2.2046226218 * (set.reps ?? 0)),
-    })),
-    latestSets: matchingSets.slice(0, 5).map((set) => ({
-      date: set.date,
-      summary: `${set.weightKg ?? 0} kg × ${set.reps ?? 0}`,
-    })),
-  };
-}
-
-export async function fetchWorkouts(input: { limit: number; offset: number }) {
-  const dashboard = await fetchHealthDashboard();
-  const workouts = dashboard.recentWorkouts.map(workoutSummary);
-  return {
-    workouts: workouts.slice(input.offset, input.offset + input.limit),
-    total: workouts.length,
-  };
-}
-
-export async function fetchWorkoutDetail(
-  id: string,
-): Promise<DetailedWorkoutSummary> {
-  const workout = (await convexClient.query(convexApi.health.getWorkout, {
-    id,
-  })) as ConvexRecord;
-  return detailedWorkout(mapWorkout(workout));
 }

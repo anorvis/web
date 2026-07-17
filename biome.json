@@ -29,6 +29,10 @@
         "noExplicitAny": "error",
         "noUnknownAtRules": "off"
       },
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
       "a11y": {
         "noAutofocus": "off",
         "useKeyWithClickEvents": "off",
