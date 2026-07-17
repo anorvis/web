@@ -140,6 +140,8 @@ export type Category = {
 export type Transaction = {
   id: string;
   importFingerprint?: string;
+  fingerprint?: string;
+  source?: string;
   title: string;
   amount: number;
   currency: string;

@@ -43,6 +43,11 @@ export function financeActivityFeed(
   const categoriesById = new Map(
     finance.categories.map((category) => [category.id, category]),
   );
+  const activityFingerprints = new Set(
+    activities
+      .map((activity) => activity.fingerprint)
+      .filter((fingerprint): fingerprint is string => Boolean(fingerprint)),
+  );
   const accountContext = (accountId: string | undefined, fallback: string) => {
     const account = accountId ? accountsById.get(accountId) : undefined;
     if (!account) return fallback;
@@ -53,8 +58,13 @@ export function financeActivityFeed(
     ].filter(Boolean);
     return details.join(" · ");
   };
-  const transactions: ActivityFeedItem[] = finance.transactions.map(
-    (transaction) => {
+  const transactions: ActivityFeedItem[] = finance.transactions
+    .filter(
+      (transaction) =>
+        !transaction.fingerprint ||
+        !activityFingerprints.has(transaction.fingerprint),
+    )
+    .map((transaction) => {
       const category = transaction.categoryId
         ? categoriesById.get(transaction.categoryId)
         : undefined;
@@ -73,8 +83,7 @@ export function financeActivityFeed(
         direction: transaction.amount < 0 ? "outflow" : "inflow",
         kind: "money",
       };
-    },
-  );
+    });
   const providerActivities: ActivityFeedItem[] = activities.map((activity) => {
     const account = accountContext(
       activity.accountId ?? undefined,

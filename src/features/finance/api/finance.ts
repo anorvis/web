@@ -53,6 +53,7 @@ export type FinanceTransactionRecord = {
   accountId: string | null;
   source: string;
   sourceVariant: string | null;
+  fingerprint: string | null;
   description: string;
   amount: number;
   currency: string;
@@ -91,6 +92,7 @@ export type FinanceActivityRecord = {
   accountId: string | null;
   source: string;
   sourceVariant: string | null;
+  fingerprint: string | null;
   type: string;
   description: string | null;
   amount: number | null;
@@ -445,6 +447,8 @@ export function financeDataFromDashboard(
   const transactions: Transaction[] = dashboard.transactions.map(
     (transaction) => ({
       id: transaction.id,
+      source: transaction.source,
+      fingerprint: transaction.fingerprint ?? undefined,
       title: transaction.description,
       amount: transaction.amount,
       currency: transaction.currency,
@@ -552,6 +556,8 @@ function financeDashboardFromConvex(
         source: String(row.source ?? "manual"),
         sourceVariant:
           typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+        fingerprint:
+          typeof row.fingerprint === "string" ? row.fingerprint : null,
         description: String(row.description ?? ""),
         amount: textNumber(row.amount) ?? 0,
         currency: String(row.currency ?? currency),
@@ -584,6 +590,7 @@ function financeDashboardFromConvex(
     source: String(row.source ?? "manual"),
     sourceVariant:
       typeof row.sourceVariant === "string" ? row.sourceVariant : null,
+    fingerprint: typeof row.fingerprint === "string" ? row.fingerprint : null,
     type: String(row.type ?? ""),
     description: typeof row.description === "string" ? row.description : null,
     amount: textNumber(row.amount),
