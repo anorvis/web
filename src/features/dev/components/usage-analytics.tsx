@@ -154,9 +154,11 @@ function ModelIdentity({ model }: { model: ModelUsage }) {
 function UsageModelTable({
   models,
   label,
+  unitLabel,
 }: {
   models: readonly ModelUsage[];
   label: string;
+  unitLabel: "run" | "session";
 }) {
   return (
     <div className={workspacePageStyles.horizontalScroller}>
@@ -167,7 +169,7 @@ function UsageModelTable({
         <thead>
           <tr className="border-b border-border">
             <th className={workspacePageStyles.tableHead}>model</th>
-            <th className={workspacePageStyles.tableHead}>sessions</th>
+            <th className={workspacePageStyles.tableHead}>{unitLabel}s</th>
             <th className={workspacePageStyles.tableHead}>messages</th>
             <th className={workspacePageStyles.tableHead}>tokens</th>
             <th className={workspacePageStyles.tableHead}>cost</th>
@@ -545,7 +547,11 @@ export function UsageAnalyticsView({
         />
         <section className="space-y-2" aria-label="models ranked by cost">
           <h3 className={workspacePageStyles.cardLabel}>top models by cost</h3>
-          <UsageModelTable models={modelsByCost} label="Top models by cost" />
+          <UsageModelTable
+            models={modelsByCost}
+            label="Top models by cost"
+            unitLabel={unitLabel}
+          />
         </section>
       </UsageAnalyticsDialog>
 
@@ -613,6 +619,7 @@ export function UsageAnalyticsView({
           <UsageModelTable
             models={modelsByTokens}
             label="Model mix ranked by tokens"
+            unitLabel={unitLabel}
           />
         </section>
       </UsageAnalyticsDialog>
