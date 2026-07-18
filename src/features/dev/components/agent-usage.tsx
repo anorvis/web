@@ -74,7 +74,11 @@ function SessionRow({
           </Badge>
         ) : (
           <Badge
-            variant={session.outcome === "fixed" ? "default" : "outline"}
+            variant={
+              session.outcome === (scope === "monitor" ? "completed" : "fixed")
+                ? "default"
+                : "outline"
+            }
             className={workspacePageStyles.badgeSmall}
           >
             {session.outcome ?? "unknown"}
@@ -104,17 +108,26 @@ export function SessionsCardView({
 }) {
   const { pageCount } = pageBounds(page, total, DEV_PAGE_SIZE);
   const foreground = scope === "foreground";
+  const monitor = scope === "monitor";
   const usageLabel = foreground
     ? "interactive agent usage"
-    : "maintainer usage · current month";
+    : monitor
+      ? "monitor usage · current month"
+      : "maintainer usage · current month";
   const sessionsLabel = foreground
     ? "interactive agent sessions"
-    : "background maintainer runs";
+    : monitor
+      ? "background monitor runs"
+      : "background maintainer runs";
   return (
     <Card className={workspacePageStyles.card}>
       <CardHeader className={workspacePageStyles.cardHeader}>
         <p className={workspacePageStyles.cardLabel}>
-          {foreground ? "// interactive sessions" : "// maintainer runs"}
+          {foreground
+            ? "// interactive sessions"
+            : monitor
+              ? "// monitor runs"
+              : "// maintainer runs"}
         </p>
         <h3 className={workspacePageStyles.cardTitle}>
           {usageLabel} · {total} {foreground ? "session" : "run"}
@@ -130,7 +143,9 @@ export function SessionsCardView({
           <p className="border border-dashed border-border px-4 py-8 text-center text-[0.65rem] text-muted-foreground">
             {foreground
               ? "Interactive agent sessions will appear here after the first run."
-              : "No maintainer runs recorded this month. Approved ticket runs will appear here."}
+              : monitor
+                ? "No monitor runs recorded this month. Monitor agent runs will appear here."
+                : "No maintainer runs recorded this month. Approved ticket runs will appear here."}
           </p>
         ) : (
           <>
@@ -216,17 +231,20 @@ export function AgentUsageView({
 }
 
 export function AgentUsagePanel({
-  initialScope = "foreground",
+  scope: lockedScope,
   maintainerScopeVisible = false,
 }: {
-  initialScope?: UsageScope;
+  /** Pins the panel to one scope and removes the inner scope selector. */
+  scope?: UsageScope;
   maintainerScopeVisible?: boolean;
 }) {
-  const [scope, setScope] = useState<UsageScope>(initialScope);
+  const [selectedScope, setSelectedScope] = useState<UsageScope>("foreground");
   const [page, setPage] = useState(0);
   // Fail closed: installs without the maintainer never see its usage scope,
-  // even if a stale selection points at it.
-  const activeScope = maintainerScopeVisible ? scope : "foreground";
+  // even if a stale selection points at it. A locked scope bypasses the
+  // selector entirely (the monitor tab pins scope="monitor").
+  const activeScope =
+    lockedScope ?? (maintainerScopeVisible ? selectedScope : "foreground");
   const query = useQuery({
     queryKey: queryKeys.dev.agentUsage(activeScope, page),
     queryFn: () => fetchAgentUsagePage(activeScope, page, DEV_PAGE_SIZE),
@@ -235,13 +253,13 @@ export function AgentUsagePanel({
       previous?.scope === activeScope ? previous : undefined,
   });
   const selectScope = (nextScope: UsageScope) => {
-    setScope(nextScope);
+    setSelectedScope(nextScope);
     setPage(0);
   };
   const error = query.error instanceof Error ? query.error.message : null;
   return (
     <section className="space-y-4" aria-label="agent usage by scope">
-      {maintainerScopeVisible ? (
+      {lockedScope === undefined && maintainerScopeVisible ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
           <p className={workspacePageStyles.cardLabel}>usage scope</p>
           <fieldset className="flex items-center gap-2">

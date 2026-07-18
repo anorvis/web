@@ -43,8 +43,10 @@ export const queryKeys = {
     maintainerLinear: () => ["dev", "maintainer", "linear"] as const,
     maintainerLinearTeams: () =>
       ["dev", "maintainer", "linear", "teams"] as const,
-    agentUsage: (scope: "foreground" | "maintainer", page: number) =>
-      ["dev", "agent-usage", scope, page] as const,
+    agentUsage: (
+      scope: "foreground" | "monitor" | "maintainer",
+      page: number,
+    ) => ["dev", "agent-usage", scope, page] as const,
     agentUsageRoot: () => ["dev", "agent-usage"] as const,
   },
   spotify: {

@@ -316,10 +316,14 @@ export function UsageAnalyticsView({
   maintainerVisible?: boolean;
 }) {
   const maintainerScope = scope === "maintainer";
-  const usageName = maintainerScope
-    ? "maintainer usage"
-    : "interactive agent usage";
-  const unitLabel = maintainerScope ? "run" : "session";
+  const monitorScope = scope === "monitor";
+  const backgroundScope = maintainerScope || monitorScope;
+  const usageName = monitorScope
+    ? "monitor agent usage"
+    : maintainerScope
+      ? "maintainer usage"
+      : "interactive agent usage";
+  const unitLabel = backgroundScope ? "run" : "session";
   const [dialog, setDialog] = useState<UsageDialog>(null);
   const modelsByTokens = useMemo(
     () =>
@@ -388,21 +392,25 @@ export function UsageAnalyticsView({
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
         <div className="space-y-1">
           <p className={workspacePageStyles.cardLabel}>
-            {maintainerScope
-              ? "// background maintainer"
-              : "// interactive agent"}
+            {monitorScope
+              ? "// monitor agent"
+              : maintainerScope
+                ? "// background maintainer"
+                : "// interactive agent"}
           </p>
           <h2 className={workspacePageStyles.cardTitle}>
             {usageName}
-            {maintainerScope ? " · current month" : ""}
+            {backgroundScope ? " · current month" : ""}
           </h2>
         </div>
         <p className={workspacePageStyles.cardBodyText}>
-          {maintainerScope
-            ? "Background maintainer workers and private generalizers only; interactive sessions are excluded."
-            : maintainerVisible
-              ? "Interactive foreground sessions only; background maintainer workers and generalizers are excluded."
-              : "Interactive agent sessions on this machine."}
+          {monitorScope
+            ? "Background monitor agent runs only; interactive and maintainer sessions are excluded."
+            : maintainerScope
+              ? "Background maintainer workers and private generalizers only; interactive sessions are excluded."
+              : maintainerVisible
+                ? "Interactive foreground sessions only; background maintainer workers and generalizers are excluded."
+                : "Interactive agent sessions on this machine."}
         </p>
       </header>
       <div className={workspacePageStyles.metricsStrip}>
@@ -417,7 +425,7 @@ export function UsageAnalyticsView({
         />
         <Metric label="cache hit rate" value={formatPercent(hitRate)} />
         <Metric
-          label={maintainerScope ? "runs" : "sessions"}
+          label={backgroundScope ? "runs" : "sessions"}
           value={formatInteger(totals.sessions)}
         />
       </div>
@@ -425,14 +433,18 @@ export function UsageAnalyticsView({
       {noUsage ? (
         <div className="border border-dashed border-border px-4 py-8 text-center">
           <p className={workspacePageStyles.cardTitle}>
-            {maintainerScope
-              ? "No maintainer usage recorded this month."
-              : "No interactive agent usage recorded yet."}
+            {monitorScope
+              ? "No monitor agent usage recorded this month."
+              : maintainerScope
+                ? "No maintainer usage recorded this month."
+                : "No interactive agent usage recorded yet."}
           </p>
           <p className={workspacePageStyles.cardBodyText}>
-            {maintainerScope
-              ? "Approved ticket runs will populate current-month spend, cache, and model detail."
-              : "Run an interactive agent session to populate spend, cache, and model detail."}
+            {monitorScope
+              ? "Monitor agent runs will populate current-month spend, cache, and model detail."
+              : maintainerScope
+                ? "Approved ticket runs will populate current-month spend, cache, and model detail."
+                : "Run an interactive agent session to populate spend, cache, and model detail."}
           </p>
         </div>
       ) : null}
@@ -440,7 +452,7 @@ export function UsageAnalyticsView({
         <UsageDetailCard
           label="// spend + volume"
           title="spend and volume"
-          description={`${maintainerScope ? "Run" : "Session"} economics and aggregate traffic.`}
+          description={`${backgroundScope ? "Run" : "Session"} economics and aggregate traffic.`}
           onOpen={() => setDialog("spend")}
           items={[
             {

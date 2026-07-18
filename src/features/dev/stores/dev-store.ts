@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type ActiveTab = "operations" | "maintainer";
+type ActiveTab = "operations" | "monitor" | "maintainer";
 
 type DevStore = {
   activeTab: ActiveTab;

@@ -97,7 +97,7 @@ type SanitizedSession = {
   usdCost: number;
   lastSeenAt: string | null;
   reviewed: boolean;
-  stage: "generalizer" | "worker" | null;
+  stage: "generalizer" | "worker" | "monitor" | null;
   outcome: string | null;
 };
 
@@ -118,7 +118,9 @@ function sanitizeSession(
   return {
     sessionKey,
     scope:
-      value.scope === "foreground" || value.scope === "maintainer"
+      value.scope === "foreground" ||
+      value.scope === "monitor" ||
+      value.scope === "maintainer"
         ? value.scope
         : defaultScope,
     host: text(value.host) ?? "unknown",
@@ -130,7 +132,9 @@ function sanitizeSession(
     lastSeenAt: text(value.lastSeenAt),
     reviewed: value.reviewed === true,
     stage:
-      value.stage === "generalizer" || value.stage === "worker"
+      value.stage === "generalizer" ||
+      value.stage === "worker" ||
+      value.stage === "monitor"
         ? value.stage
         : null,
     outcome: text(value.outcome),
@@ -158,15 +162,18 @@ export async function GET(request: Request) {
   if (
     view === "sessions" &&
     requestedScope !== "foreground" &&
+    requestedScope !== "monitor" &&
     requestedScope !== "maintainer"
   ) {
     return NextResponse.json(
-      { error: "scope must be foreground or maintainer" },
+      { error: "scope must be foreground, monitor, or maintainer" },
       { status: 400 },
     );
   }
   const scope: UsageScope =
-    requestedScope === "maintainer" ? "maintainer" : "foreground";
+    requestedScope === "monitor" || requestedScope === "maintainer"
+      ? requestedScope
+      : "foreground";
   const statuses =
     view === "tickets"
       ? (params.get("status") ?? "")
@@ -224,9 +231,9 @@ export async function GET(request: Request) {
           usagePeriod:
             root.usagePeriod === "current_month"
               ? "current_month"
-              : scope === "maintainer"
-                ? "current_month"
-                : "all",
+              : scope === "foreground"
+                ? "all"
+                : "current_month",
           usageSince: text(root.usageSince),
           sessions,
           total,
