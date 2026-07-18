@@ -107,7 +107,7 @@ function UsageDetailCard({
   onOpen: () => void;
 }) {
   return (
-    <Card className="gap-0 rounded-none border-0 bg-background py-0 shadow-none">
+    <Card className="h-full gap-0 rounded-none border-0 bg-background py-0 shadow-none">
       <button
         type="button"
         className="block h-full w-full text-left transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground"
@@ -307,11 +307,13 @@ export function UsageAnalyticsView({
   analytics,
   loading,
   error,
+  maintainerVisible = false,
 }: {
   scope: UsageScope;
   analytics: UsageAnalytics | null;
   loading: boolean;
   error: string | null;
+  maintainerVisible?: boolean;
 }) {
   const maintainerScope = scope === "maintainer";
   const usageName = maintainerScope
@@ -398,7 +400,9 @@ export function UsageAnalyticsView({
         <p className={workspacePageStyles.cardBodyText}>
           {maintainerScope
             ? "Background maintainer workers and private generalizers only; interactive sessions are excluded."
-            : "Interactive foreground sessions only; background maintainer workers and generalizers are excluded."}
+            : maintainerVisible
+              ? "Interactive foreground sessions only; background maintainer workers and generalizers are excluded."
+              : "Interactive agent sessions on this machine."}
         </p>
       </header>
       <div className={workspacePageStyles.metricsStrip}>

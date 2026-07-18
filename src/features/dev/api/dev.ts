@@ -2,8 +2,14 @@ import { devAuthHeaders } from "@/features/dev/api/session-token";
 import type { UsageScope } from "@/features/dev/usage";
 import {
   type AgentUsagePage,
+  type LinearStatus,
+  type LinearSyncResult,
+  type LinearTeam,
   type MaintainerStatus,
   type MaintainerTicketPage,
+  normalizeLinearStatus,
+  normalizeLinearSync,
+  normalizeLinearTeams,
   normalizeMaintainerStatus,
   normalizePreflight,
   normalizeSessionPage,
@@ -16,6 +22,7 @@ import {
 } from "@/features/dev/utils/maintainer";
 import { requestJson } from "@/lib/effect/http";
 import { runEffect } from "@/lib/effect/runtime";
+import { isRecord } from "@/lib/guards";
 
 /** GET against /api/dev with the owner-guard session token attached. */
 function devGet(path: string) {
@@ -97,4 +104,58 @@ export async function runMaintainerSmoke(): Promise<SmokeResult> {
 export async function runMaintainerVaultLogin(): Promise<VaultLoginResult> {
   const value = await runEffect(devPost("/api/dev/maintainer/vault-login", {}));
   return normalizeVaultLogin(value);
+}
+
+export async function triageMaintainerTicket(
+  id: string,
+  action: "approve" | "dismiss",
+): Promise<void> {
+  await runEffect(
+    devPost("/api/dev/maintainer/tickets/triage", { id, action }),
+  );
+}
+
+export async function fetchLinearStatus(): Promise<LinearStatus> {
+  const value = await runEffect(devGet("/api/dev/maintainer/linear"));
+  return normalizeLinearStatus(value);
+}
+
+export async function saveLinearCredentials(payload: {
+  clientId?: string;
+  clientSecret?: string;
+  apiKey?: string;
+}): Promise<void> {
+  await runEffect(devPost("/api/dev/maintainer/linear/credentials", payload));
+}
+
+export async function startLinearSignIn(): Promise<string> {
+  const value = await runEffect(
+    devPost("/api/dev/maintainer/linear/authorize", {}),
+  );
+  const url =
+    isRecord(value) && typeof value.authorizationUrl === "string"
+      ? value.authorizationUrl
+      : null;
+  if (!url?.startsWith("https://linear.app/")) {
+    throw new Error("the gateway did not return a linear sign-in url.");
+  }
+  return url;
+}
+
+export async function fetchLinearTeams(): Promise<LinearTeam[]> {
+  const value = await runEffect(devGet("/api/dev/maintainer/linear/teams"));
+  return normalizeLinearTeams(value);
+}
+
+export async function saveLinearTeam(teamId: string): Promise<void> {
+  await runEffect(devPost("/api/dev/maintainer/linear/team", { teamId }));
+}
+
+export async function disconnectLinear(): Promise<void> {
+  await runEffect(devPost("/api/dev/maintainer/linear/disconnect", {}));
+}
+
+export async function syncLinear(): Promise<LinearSyncResult> {
+  const value = await runEffect(devPost("/api/dev/maintainer/linear/sync", {}));
+  return normalizeLinearSync(value);
 }

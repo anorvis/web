@@ -40,6 +40,9 @@ export const queryKeys = {
     maintainerTickets: (group: string, page: number) =>
       ["dev", "maintainer", "tickets", group, page] as const,
     maintainerTicketsRoot: () => ["dev", "maintainer", "tickets"] as const,
+    maintainerLinear: () => ["dev", "maintainer", "linear"] as const,
+    maintainerLinearTeams: () =>
+      ["dev", "maintainer", "linear", "teams"] as const,
     agentUsage: (scope: "foreground" | "maintainer", page: number) =>
       ["dev", "agent-usage", scope, page] as const,
     agentUsageRoot: () => ["dev", "agent-usage"] as const,

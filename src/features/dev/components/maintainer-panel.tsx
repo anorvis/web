@@ -16,6 +16,7 @@ import { fetchMaintainerStatus } from "@/features/dev/api/dev";
 import {
   ControlsCard,
   GithubTokenCard,
+  LinearCard,
   ModelAuthCard,
   maintainerStatusBadgeClass,
 } from "@/features/dev/components/maintainer-actions";
@@ -181,8 +182,8 @@ function MaintainerSetup({
         />
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <div className="grid gap-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="flex h-full flex-col gap-4 [&>*:last-child]:flex-1">
           <DetailCard
             label="// readiness"
             title={`setup checklist · ${passed}/${checks.length}`}
@@ -196,7 +197,9 @@ function MaintainerSetup({
           </DetailCard>
           {controls}
         </div>
-        <div className="grid gap-4">{authentication}</div>
+        <div className="flex h-full flex-col gap-4 [&>*:last-child]:flex-1">
+          {authentication}
+        </div>
       </div>
 
       <WorkspaceDialog
@@ -286,6 +289,7 @@ export function MaintainerPanel() {
               onVaultLoginStarted={() => setVaultPolling(true)}
             />
             <GithubTokenCard status={status} onStatusChanged={refreshStatus} />
+            <LinearCard />
           </>
         ) : null
       }
