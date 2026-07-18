@@ -18,27 +18,32 @@ export function DevPlatformDashboard() {
     queryFn: fetchMaintainerStatus,
   });
   // Fail closed: installs without the maintainer never see its surfaces, so
-  // the tab renders only once the local gateway confirms it is enabled.
-  // While loading, on gateway errors, or when disabled the derived tab
-  // collapses back to operations even if the store still says maintainer.
+  // that tab renders only once the local gateway confirms it is enabled.
+  // While loading, on gateway errors, or when disabled a stale maintainer
+  // selection collapses back to operations. The monitor tab has no such
+  // gate: monitor telemetry is local and stays visible regardless of the
+  // maintainer status request.
   const maintainerVisible = statusQuery.data?.enabled === true;
-  const tab = maintainerVisible ? activeTab : "operations";
+  const tab =
+    activeTab === "maintainer" && !maintainerVisible ? "operations" : activeTab;
 
   const refresh = () => {
-    if (tab === "operations") {
+    if (tab === "maintainer") {
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.dev.agentUsageRoot(),
+        queryKey: queryKeys.dev.maintainerStatus(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.dev.maintainerTicketsRoot(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.dev.maintainerLinear(),
       });
       return;
     }
+    // Operations and monitor both render agent usage; one root key covers
+    // every scope and page.
     void queryClient.invalidateQueries({
-      queryKey: queryKeys.dev.maintainerStatus(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.dev.maintainerTicketsRoot(),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.dev.maintainerLinear(),
+      queryKey: queryKeys.dev.agentUsageRoot(),
     });
   };
 
@@ -57,6 +62,18 @@ export function DevPlatformDashboard() {
             onClick={() => setActiveTab("operations")}
           >
             operations
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              workspacePageStyles.actionButton,
+              tab === "monitor" && "border-foreground text-foreground",
+            )}
+            onClick={() => setActiveTab("monitor")}
+          >
+            monitor
           </Button>
           {maintainerVisible ? (
             <Button
@@ -86,8 +103,13 @@ export function DevPlatformDashboard() {
 
       {tab === "maintainer" ? (
         <MaintainerPanel />
+      ) : tab === "monitor" ? (
+        <AgentUsagePanel key="monitor" scope="monitor" />
       ) : (
-        <AgentUsagePanel maintainerScopeVisible={maintainerVisible} />
+        <AgentUsagePanel
+          key="operations"
+          maintainerScopeVisible={maintainerVisible}
+        />
       )}
     </div>
   );

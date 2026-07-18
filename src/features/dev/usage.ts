@@ -1,6 +1,6 @@
 import { isRecord } from "@/lib/guards";
 
-export type UsageScope = "foreground" | "maintainer";
+export type UsageScope = "foreground" | "monitor" | "maintainer";
 
 export type UsageTotals = {
   sessions: number;

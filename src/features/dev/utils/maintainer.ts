@@ -304,7 +304,7 @@ export type AgentUsageSession = {
   usdCost: number;
   lastSeenAt: string | null;
   reviewed: boolean;
-  stage: "generalizer" | "worker" | null;
+  stage: "generalizer" | "worker" | "monitor" | null;
   outcome: string | null;
 };
 
@@ -324,7 +324,7 @@ function usageCount(value: unknown): number {
 }
 
 function usageScope(value: unknown): UsageScope {
-  return value === "maintainer" ? "maintainer" : "foreground";
+  return value === "maintainer" || value === "monitor" ? value : "foreground";
 }
 
 function session(
@@ -337,7 +337,9 @@ function session(
   return {
     sessionKey,
     scope:
-      value.scope === "foreground" || value.scope === "maintainer"
+      value.scope === "foreground" ||
+      value.scope === "monitor" ||
+      value.scope === "maintainer"
         ? value.scope
         : defaultScope,
     host: text(value.host) ?? "unknown",
@@ -349,7 +351,9 @@ function session(
     lastSeenAt: text(value.lastSeenAt),
     reviewed: value.reviewed === true,
     stage:
-      value.stage === "generalizer" || value.stage === "worker"
+      value.stage === "generalizer" ||
+      value.stage === "worker" ||
+      value.stage === "monitor"
         ? value.stage
         : null,
     outcome: text(value.outcome),
@@ -367,9 +371,9 @@ export function normalizeSessionPage(value: unknown): AgentUsagePage {
     usagePeriod:
       root.usagePeriod === "current_month"
         ? "current_month"
-        : scope === "maintainer"
-          ? "current_month"
-          : "all",
+        : scope === "foreground"
+          ? "all"
+          : "current_month",
     usageSince: text(root.usageSince),
     sessions,
     total:
